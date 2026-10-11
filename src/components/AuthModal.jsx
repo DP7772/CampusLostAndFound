@@ -126,7 +126,7 @@ export default function AuthModal({ isOpen, type, onClose }) {
     }
   };
 
-  // --- Login Handler (Student & Admin Separation) ---
+  // --- Login Handler (Strict Separation & Redirection) ---
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     if (!emailRegex.test(email) || !password) {
@@ -137,7 +137,13 @@ export default function AuthModal({ isOpen, type, onClose }) {
     setLoading(true);
 
     try {
+      // 1. Clear any prior local session to avoid cross-role routing bugs
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+
+      // 2. Identify portal source
       const portalType = type === 'admin-login' ? 'admin' : 'student';
+      
       const res = await fetch('/api/auth-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -145,12 +151,15 @@ export default function AuthModal({ isOpen, type, onClose }) {
       });
       const data = await parseResponse(res);
 
+      // 3. Store freshly authenticated session
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
 
       setSuccessMsg(`Welcome back, ${data.user.name}! Redirecting...`);
+      
       setTimeout(() => {
         onClose();
+        // 4. Strict Role-based destination
         if (data.user.role === 'admin') {
           window.location.href = '/admin-dashboard';
         } else {
