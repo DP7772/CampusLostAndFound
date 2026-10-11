@@ -295,7 +295,7 @@ exports.handler = async (event) => {
       }
     }
 
-  // 7. DIRECT USER INSERT (Matching users table schema exactly)
+    // 7. DIRECT USER INSERT (Matching users table schema: name, email, password_hash, role)
     if (action === 'admin-create-user') {
       const { name, email, password, role } = payload;
 
@@ -308,7 +308,6 @@ exports.handler = async (event) => {
       }
 
       const cleanEmail = email.trim().toLowerCase();
-      // Agar name frontend se na aaye toh email ka prefix use karein taaki NOT NULL constraint violate na ho
       const cleanName = (name && name.trim()) || cleanEmail.split('@')[0];
       const userRole = role === 'admin' ? 'admin' : 'student';
 
@@ -347,3 +346,24 @@ exports.handler = async (event) => {
         };
       }
     }
+
+    // Fallback for unknown action
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ error: 'Unknown action specified', items: [], notifications: [] })
+    };
+
+  } catch (globalErr) {
+    console.error('SERVER GLOBAL ERROR:', globalErr.message);
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        error: globalErr.message,
+        items: [],
+        notifications: []
+      })
+    };
+  }
+};
