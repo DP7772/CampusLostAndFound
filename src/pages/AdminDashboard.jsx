@@ -9,7 +9,7 @@ export default function AdminDashboard() {
   const [isSetupNeeded, setIsSetupNeeded] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Feed & Tabs
+  // Feed & Filter Tabs
   const [feedItems, setFeedItems] = useState([]);
   const [activeTab, setActiveTab] = useState('active'); // 'active' | 'resolved'
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,7 +34,7 @@ export default function AdminDashboard() {
     isOpen: false,
     title: '',
     message: '',
-    type: 'approve' // 'approve' | 'reject' | 'provision'
+    type: 'approve' // 'approve' | 'reject' | 'provision' | 'error'
   });
 
   // Action Loading state for buttons
@@ -55,7 +55,7 @@ export default function AdminDashboard() {
 
   const navigate = useNavigate();
 
-  // 🔔 Paytm Sound Chime (Native Web Audio API)
+  // 🔔 Paytm Soundbox Chime Engine (Native Web Audio API)
   const playPaytmChime = (type = 'success') => {
     try {
       const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
@@ -79,7 +79,7 @@ export default function AdminDashboard() {
         osc.start();
         osc.stop(ctx.currentTime + 0.5);
       } else {
-        // Reject low blip
+        // Reject / Alert low blip
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(320.0, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(180.0, ctx.currentTime + 0.2);
@@ -91,7 +91,7 @@ export default function AdminDashboard() {
         osc.stop(ctx.currentTime + 0.25);
       }
     } catch (e) {
-      console.warn('Audio feedback blocked:', e);
+      console.warn('Audio feedback blocked by autoplay policy:', e);
     }
   };
 
@@ -169,7 +169,7 @@ export default function AdminDashboard() {
     });
   };
 
-  // Execute Confirmed Claim Decision
+  // Execute Confirmed Claim Decision (Zero Native Alerts)
   const executeConfirmedDecision = async () => {
     const { claimId, decision, claimantName } = confirmModal;
     setProcessingClaim(true);
@@ -195,7 +195,7 @@ export default function AdminDashboard() {
             isOpen: true,
             type: 'approve',
             title: 'Claim Approved & Verified!',
-            message: `Asset has been handed over to ${claimantName}. Competing claims rejected and case closed permanently.`
+            message: `Asset has been handed over to ${claimantName || 'Claimant'}. Competing claims rejected and case closed permanently.`
           });
           fetchFeed();
           setSelectedTheaterItem(null); // Close theater on case resolution
@@ -205,17 +205,29 @@ export default function AdminDashboard() {
             isOpen: true,
             type: 'reject',
             title: 'Claim Rejected',
-            message: `The claim submitted by ${claimantName} has been discarded.`
+            message: `The claim submitted by ${claimantName || 'Claimant'} has been discarded.`
           });
           // Re-fetch remaining claims in theater
           openTheater(selectedTheaterItem);
         }
       } else {
-        alert(data.error || 'Operation failed');
+        playPaytmChime('reject');
+        setSuccessModal({
+          isOpen: true,
+          type: 'error',
+          title: 'Operation Failed',
+          message: data.error || 'Server rejected the request.'
+        });
       }
     } catch (e) {
       setProcessingClaim(false);
-      alert('Network error occurred.');
+      playPaytmChime('reject');
+      setSuccessModal({
+        isOpen: true,
+        type: 'error',
+        title: 'Network Communication Error',
+        message: 'Could not connect to database server.'
+      });
     }
   };
 
@@ -681,33 +693,49 @@ export default function AdminDashboard() {
           onClick={() => setSuccessModal({ ...successModal, isOpen: false })}
         >
           <div
-            className="w-full max-w-sm bg-gradient-to-b from-[#0e161c] to-[#0a0b12] border border-emerald-500/30 rounded-3xl p-7 text-center relative space-y-5 shadow-[0_0_60px_rgba(16,185,129,0.25)]"
+            className={`w-full max-w-sm bg-gradient-to-b from-[#0e161c] to-[#0a0b12] border rounded-3xl p-7 text-center relative space-y-5 shadow-2xl ${
+              successModal.type === 'error'
+                ? 'border-red-500/40 shadow-red-950/50'
+                : 'border-emerald-500/30 shadow-[0_0_60px_rgba(16,185,129,0.25)]'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Animated Paytm-Style Checkmark */}
             <div className="flex justify-center">
               <div className="relative">
-                <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 ${
-                  successModal.type === 'reject'
-                    ? 'bg-red-500/20 border-red-400 shadow-[0_0_30px_rgba(239,68,68,0.5)]'
-                    : 'bg-emerald-500/20 border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.5)]'
-                }`}>
-                  <span className={`text-3xl font-black ${successModal.type === 'reject' ? 'text-red-400' : 'text-emerald-400'}`}>
-                    {successModal.type === 'reject' ? '✕' : '✓'}
+                <div
+                  className={`w-20 h-20 rounded-full flex items-center justify-center border-2 ${
+                    successModal.type === 'reject' || successModal.type === 'error'
+                      ? 'bg-red-500/20 border-red-400 shadow-[0_0_30px_rgba(239,68,68,0.5)]'
+                      : 'bg-emerald-500/20 border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.5)]'
+                  }`}
+                >
+                  <span
+                    className={`text-3xl font-black ${
+                      successModal.type === 'reject' || successModal.type === 'error' ? 'text-red-400' : 'text-emerald-400'
+                    }`}
+                  >
+                    {successModal.type === 'reject' || successModal.type === 'error' ? '✕' : '✓'}
                   </span>
                 </div>
-                <div className={`absolute inset-0 rounded-full border animate-ping opacity-25 ${
-                  successModal.type === 'reject' ? 'border-red-400' : 'border-emerald-400'
-                }`}></div>
+                <div
+                  className={`absolute inset-0 rounded-full border animate-ping opacity-25 ${
+                    successModal.type === 'reject' || successModal.type === 'error' ? 'border-red-400' : 'border-emerald-400'
+                  }`}
+                ></div>
               </div>
             </div>
 
             {/* Success Message */}
             <div className="space-y-1">
-              <span className={`text-[10px] font-mono font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                successModal.type === 'reject' ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
-              }`}>
-                Transaction Logged
+              <span
+                className={`text-[10px] font-mono font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                  successModal.type === 'reject' || successModal.type === 'error'
+                    ? 'bg-red-500/20 text-red-400'
+                    : 'bg-emerald-500/20 text-emerald-400'
+                }`}
+              >
+                {successModal.type === 'error' ? 'Operation Error' : 'Transaction Logged'}
               </span>
               <h3 className="text-xl font-black text-white pt-1">{successModal.title}</h3>
               <p className="text-xs text-slate-300 leading-relaxed pt-1">{successModal.message}</p>
@@ -716,7 +744,11 @@ export default function AdminDashboard() {
             {/* Done Action Button */}
             <button
               onClick={() => setSuccessModal({ ...successModal, isOpen: false })}
-              className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl text-xs font-bold uppercase tracking-wider transition-all shadow-lg shadow-emerald-900/50 cursor-pointer"
+              className={`w-full py-3 text-white rounded-2xl text-xs font-bold uppercase tracking-wider transition-all shadow-lg cursor-pointer ${
+                successModal.type === 'error'
+                  ? 'bg-red-600 hover:bg-red-500 shadow-red-900/50'
+                  : 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-900/50'
+              }`}
             >
               Continue
             </button>
