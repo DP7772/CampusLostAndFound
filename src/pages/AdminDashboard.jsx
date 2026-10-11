@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardNavbar from '../components/DashboardNavbar';
 import ProfileSetupModal from '../components/ProfileSetupModal';
@@ -40,15 +40,13 @@ export default function AdminDashboard() {
   // Action Loading state for buttons
   const [processingClaim, setProcessingClaim] = useState(false);
 
-  // 👤 User Provisioning Modal
+  // 👤 User Provisioning Modal (Matching DB: name, email, password_hash, role)
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [newUserForm, setNewUserForm] = useState({
-    fullName: '',
+    name: '',
     email: '',
     password: '',
-    role: 'student',
-    phone: '',
-    identifier: ''
+    role: 'student'
   });
   const [createUserLoading, setCreateUserLoading] = useState(false);
   const [createUserError, setCreateUserError] = useState('');
@@ -67,7 +65,6 @@ export default function AdminDashboard() {
       const gain = ctx.createGain();
 
       if (type === 'success') {
-        // High tone double chime (Paytm sound style)
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
         osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.12); // G5
@@ -79,7 +76,6 @@ export default function AdminDashboard() {
         osc.start();
         osc.stop(ctx.currentTime + 0.5);
       } else {
-        // Reject / Alert low blip
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(320.0, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(180.0, ctx.currentTime + 0.2);
@@ -108,6 +104,8 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
+    document.title = 'Authority Console | Campus L&F';
+
     const storedUser = localStorage.getItem('user');
     const token = localStorage.getItem('token');
 
@@ -158,7 +156,7 @@ export default function AdminDashboard() {
       .finally(() => setClaimsLoading(false));
   };
 
-  // Trigger Paytm-Style Confirmation Dialog
+  // Trigger Confirmation Modal
   const promptClaimAction = (claim, decision) => {
     setConfirmModal({
       isOpen: true,
@@ -194,20 +192,19 @@ export default function AdminDashboard() {
           setSuccessModal({
             isOpen: true,
             type: 'approve',
-            title: 'Claim Approved & Verified!',
-            message: `Asset has been handed over to ${claimantName || 'Claimant'}. Competing claims rejected and case closed permanently.`
+            title: 'Asset Recovery Verified!',
+            message: `Asset marked as recovered. Successfully found and handed in by ${claimantName || 'Verified Student'}. Case closed.`
           });
           fetchFeed();
-          setSelectedTheaterItem(null); // Close theater on case resolution
+          setSelectedTheaterItem(null);
         } else {
           playPaytmChime('reject');
           setSuccessModal({
             isOpen: true,
             type: 'reject',
             title: 'Claim Rejected',
-            message: `The claim submitted by ${claimantName || 'Claimant'} has been discarded.`
+            message: `The claim submission by ${claimantName || 'Claimant'} has been discarded.`
           });
-          // Re-fetch remaining claims in theater
           openTheater(selectedTheaterItem);
         }
       } else {
@@ -253,15 +250,15 @@ export default function AdminDashboard() {
           isOpen: true,
           type: 'provision',
           title: 'Account Created Successfully!',
-          message: `${newUserForm.fullName} (${newUserForm.role.toUpperCase()}) is now registered and can log in without OTP.`
+          message: `${newUserForm.name} (${newUserForm.role.toUpperCase()}) is now registered and can log in directly without OTP.`
         });
-        setNewUserForm({ fullName: '', email: '', password: '', role: 'student', phone: '', identifier: '' });
+        setNewUserForm({ name: '', email: '', password: '', role: 'student' });
       } else {
-        setCreateUserError(data.error || 'Failed to register');
+        setCreateUserError(data.error || 'Failed to register account.');
       }
     } catch (err) {
       setCreateUserLoading(false);
-      setCreateUserError('Server request failed.');
+      setCreateUserError('Server communication failed.');
     }
   };
 
@@ -309,7 +306,7 @@ export default function AdminDashboard() {
             </span>
             <h1 className="text-3xl font-black text-white mt-2">Authority Claim Console</h1>
             <p className="text-slate-400 text-xs mt-1 max-w-xl">
-              Inspect reported items, cross-examine ownership claims in Theater View, and grant verified handovers.
+              Inspect reported items, cross-examine ownership claims in Theater View, and verify handovers.
             </p>
           </div>
 
@@ -320,7 +317,7 @@ export default function AdminDashboard() {
             }}
             className="px-6 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-purple-600/30 flex items-center gap-2 cursor-pointer"
           >
-            <span>+</span> Provision User (No OTP)
+            <span>+</span> Register User (No OTP)
           </button>
         </div>
 
@@ -345,7 +342,7 @@ export default function AdminDashboard() {
                 activeTab === 'resolved' ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}
             >
-              <span>🔒 Verified & Handed Over</span>
+              <span>🔒 Verified & Recovered</span>
               <span className="text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full font-mono">
                 {feedItems.filter((i) => i.status === 'resolved').length}
               </span>
@@ -365,20 +362,8 @@ export default function AdminDashboard() {
         {filteredItems.length === 0 ? (
           <div className="text-center py-20 bg-[#0a0b12]/50 border border-white/5 rounded-3xl">
             <span className="text-4xl">📂</span>
-            <h3 className="text-lg font-black text-white">
-  {confirmModal.decision === 'approve' ? 'Verify Asset Recovery?' : 'Reject This Submission?'}
-</h3>
-<p className="text-xs text-slate-300">
-  {confirmModal.decision === 'approve' ? (
-    <>
-      Confirm that this asset was found and handed in by <span className="font-bold text-white">{confirmModal.claimantName}</span> ({confirmModal.enrollmentNo})?
-    </>
-  ) : (
-    <>
-      Are you sure you want to reject the claim submission by <span className="font-bold text-white">{confirmModal.claimantName}</span>?
-    </>
-  )}
-</p>
+            <h3 className="text-lg font-bold text-white mt-3">No Records Under Current Scope</h3>
+            <p className="text-xs text-slate-500 mt-1">Items will appear here once submitted.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -401,7 +386,7 @@ export default function AdminDashboard() {
                     <div className="absolute top-3 right-3">
                       {item.status === 'resolved' ? (
                         <span className="bg-emerald-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold">
-                          CLOSED
+                          RECOVERED
                         </span>
                       ) : item.status === 'claim_pending' ? (
                         <span className="bg-amber-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold animate-pulse">
@@ -429,6 +414,19 @@ export default function AdminDashboard() {
                       <p>📍 Location: <span className="text-slate-200">{item.location}</span></p>
                       <p>🕒 Logged: <span className="text-slate-200">{item.lost_date}</span></p>
                     </div>
+
+                    {item.status === 'resolved' && (
+                      <div className="mt-3 p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs space-y-1">
+                        <p className="text-purple-300 font-bold flex items-center gap-1">
+                          <span>🛡️</span> Recovered & Case Closed
+                        </p>
+                        <p className="text-slate-400 text-[11px]">
+                          Found & Handed in by:{' '}
+                          <span className="font-bold text-white">{item.approved_claimant_name || 'Student'}</span>{' '}
+                          ({item.approved_claimant_enrollment || 'N/A'})
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -461,7 +459,7 @@ export default function AdminDashboard() {
               ✕
             </button>
 
-            {/* LEFT 65%: MAIN PLAYER AREA */}
+            {/* LEFT 62%: MAIN PLAYER AREA */}
             <div className="w-full md:w-[62%] h-full p-6 md:p-8 flex flex-col justify-between overflow-y-auto border-b md:border-b-0 md:border-r border-white/10">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -512,7 +510,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* RIGHT 35%: YOUTUBE PLAYLIST STYLE CLAIMANT STREAM */}
+            {/* RIGHT 38%: YOUTUBE PLAYLIST STYLE CLAIMANT STREAM */}
             <div className="w-full md:w-[38%] h-full bg-[#080910] p-6 flex flex-col justify-between">
               <div>
                 <div className="flex justify-between items-center pb-4 border-b border-white/10">
@@ -596,7 +594,7 @@ export default function AdminDashboard() {
 
                         {claim.status === 'approved' && (
                           <div className="text-center py-1 text-xs font-bold text-emerald-400 bg-emerald-500/10 rounded-lg">
-                            ✓ VERIFIED & HANDED OVER
+                            ✓ VERIFIED & RECOVERED
                           </div>
                         )}
 
@@ -647,22 +645,22 @@ export default function AdminDashboard() {
             {/* Modal Text Content */}
             <div className="space-y-1.5">
               <h3 className="text-lg font-black text-white">
-                {confirmModal.decision === 'approve' ? 'Confirm Item Handover?' : 'Reject This Claim?'}
+                {confirmModal.decision === 'approve' ? 'Verify Asset Recovery?' : 'Reject This Submission?'}
               </h3>
               <p className="text-xs text-slate-300">
                 {confirmModal.decision === 'approve' ? (
                   <>
-                    Are you sure you want to approve claim of <span className="font-bold text-white">{confirmModal.claimantName}</span> ({confirmModal.enrollmentNo})?
+                    Confirm that this asset was found and handed in by <span className="font-bold text-white">{confirmModal.claimantName}</span> ({confirmModal.enrollmentNo})?
                   </>
                 ) : (
                   <>
-                    Are you sure you want to reject the claim submitted by <span className="font-bold text-white">{confirmModal.claimantName}</span>?
+                    Are you sure you want to reject the claim submission by <span className="font-bold text-white">{confirmModal.claimantName}</span>?
                   </>
                 )}
               </p>
               {confirmModal.decision === 'approve' && (
                 <p className="text-[11px] font-mono text-emerald-400/90 bg-emerald-950/30 py-1.5 px-3 rounded-xl border border-emerald-500/20 mt-2">
-                  ⚡ All other competing claims will auto-reject & case will be permanently closed.
+                  ⚡ All competing claims will auto-reject & case closed.
                 </p>
               )}
             </div>
@@ -798,7 +796,7 @@ export default function AdminDashboard() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center pb-2 border-b border-white/10">
-              <h3 className="text-sm font-bold text-white">Direct User Register</h3>
+              <h3 className="text-sm font-bold text-white">Direct Member Register</h3>
               <button
                 onClick={() => setIsCreateUserModalOpen(false)}
                 className="text-slate-400 hover:text-white cursor-pointer text-sm"
@@ -808,6 +806,19 @@ export default function AdminDashboard() {
             </div>
 
             <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
+              {/* Full Name */}
+              <div>
+                <label className="text-slate-400 block mb-1">Full Legal Name</label>
+                <input
+                  type="text"
+                  required
+                  value={newUserForm.name}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
+                  placeholder="e.g. Akash Maurya"
+                  className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+
               {/* Email */}
               <div>
                 <label className="text-slate-400 block mb-1">Email</label>
