@@ -6,25 +6,32 @@ export default function DashboardNavbar({ profile, role }) {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const prevCountRef = useRef(0);
 
+  const prevCountRef = useRef(0);
   const profileRef = useRef(null);
   const notifRef = useRef(null);
   const navigate = useNavigate();
 
-  // 🔔 Crisp Sci-Fi Chime Sound Generator (Native Web Audio API)
+  // 🔔 Sci-Fi Chime Sound Generator (Native Browser Web Audio API)
   const playChime = () => {
     try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      const audioCtx = new AudioContextClass();
+      
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
 
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
-      osc.frequency.exponentialRampToValueAtTime(880.00, audioCtx.currentTime + 0.12); // A5
+      osc.frequency.setValueAtTime(659.25, audioCtx.currentTime); // Note E5
+      osc.frequency.exponentialRampToValueAtTime(880.0, audioCtx.currentTime + 0.15); // Note A5
 
-      gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
 
       osc.connect(gain);
       gain.connect(audioCtx.destination);
@@ -32,11 +39,11 @@ export default function DashboardNavbar({ profile, role }) {
       osc.start();
       osc.stop(audioCtx.currentTime + 0.35);
     } catch (e) {
-      console.log('Audio autoplay constraint:', e);
+      console.warn('Audio feedback blocked by browser autoplay policy:', e);
     }
   };
 
-  // Poll for notifications
+  // 🔄 Poll Database Notifications
   const loadNotifications = () => {
     fetch('/api/items', {
       method: 'POST',
@@ -46,25 +53,28 @@ export default function DashboardNavbar({ profile, role }) {
       .then((res) => res.json())
       .then((data) => {
         const list = data.notifications || [];
-        if (list.length > prevCountRef.current && prevCountRef.current !== 0) {
+        
+        // Agar naya broadcast aaya toh chime bajega aur count badhega
+        if (prevCountRef.current > 0 && list.length > prevCountRef.current) {
           playChime();
-          setUnreadCount((c) => c + (list.length - prevCountRef.current));
+          setUnreadCount((prev) => prev + (list.length - prevCountRef.current));
         } else if (prevCountRef.current === 0 && list.length > 0) {
           setUnreadCount(list.length);
         }
+
         prevCountRef.current = list.length;
         setNotifications(list);
       })
-      .catch((err) => console.error(err));
+      .catch((err) => console.error('Notification synchronization error:', err));
   };
 
   useEffect(() => {
     loadNotifications();
-    const interval = setInterval(loadNotifications, 8000); // Poll every 8s
+    const interval = setInterval(loadNotifications, 7000);
     return () => clearInterval(interval);
   }, []);
 
-  // Close menus on outside click
+  // 🖱️ Click Outside to Dismiss Menus
   useEffect(() => {
     const handleOutsideClick = (e) => {
       if (profileRef.current && !profileRef.current.contains(e.target)) {
@@ -89,7 +99,10 @@ export default function DashboardNavbar({ profile, role }) {
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         
         {/* Brand / Logo */}
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+        <div 
+          className="flex items-center gap-3 cursor-pointer select-none" 
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        >
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 font-black text-white">
             Ω
           </div>
@@ -98,10 +111,10 @@ export default function DashboardNavbar({ profile, role }) {
           </span>
         </div>
 
-        {/* Right Action Controls */}
+        {/* Action Controls */}
         <div className="flex items-center gap-5">
           
-          {/* 🔔 Notification Bell with Red Glow */}
+          {/* 🔔 Notification Bell Alert */}
           <div className="relative" ref={notifRef}>
             <button
               onClick={() => {
@@ -114,6 +127,7 @@ export default function DashboardNavbar({ profile, role }) {
                   ? 'bg-red-500/20 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse' 
                   : 'bg-white/5 hover:bg-white/10 border-white/5 text-slate-300 hover:text-white'
               }`}
+              title="Notifications"
             >
               🔔
               {unreadCount > 0 && (
@@ -123,15 +137,15 @@ export default function DashboardNavbar({ profile, role }) {
               )}
             </button>
 
-            {/* Notification Drawer (Chronological: Newest on Top) */}
+            {/* Notification Drawer */}
             {showNotifMenu && (
-              <div className="absolute right-0 mt-3 w-84 md:w-96 bg-[#0e0f17] border border-white/10 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in duration-200">
+              <div className="absolute right-0 mt-3 w-80 md:w-96 bg-[#0e0f17] border border-white/10 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in duration-200">
                 <div className="flex justify-between items-center pb-3 border-b border-white/5">
                   <h4 className="text-xs font-bold text-white uppercase tracking-wider">Campus Broadcast Feed</h4>
                   <span className="text-[10px] text-blue-400 font-mono">Live Sync</span>
                 </div>
                 
-                <div className="mt-3 space-y-3 max-h-80 overflow-y-auto pr-1">
+                <div className="mt-3 space-y-2.5 max-h-80 overflow-y-auto pr-1">
                   {notifications.length === 0 ? (
                     <p className="text-xs text-slate-500 text-center py-4">No active broadcasts yet.</p>
                   ) : (
@@ -139,17 +153,15 @@ export default function DashboardNavbar({ profile, role }) {
                       <div 
                         key={i} 
                         className={`p-3 rounded-xl border text-xs transition-all ${
-                          n.title.includes('Recovered') 
+                          n.title && n.title.includes('Resolved') 
                             ? 'bg-purple-950/20 border-purple-500/30' 
                             : 'bg-blue-950/20 border-blue-500/20'
                         }`}
                       >
-                        <p className="font-bold text-white flex items-center justify-between">
-                          <span>{n.title}</span>
-                        </p>
+                        <p className="font-bold text-white">{n.title}</p>
                         <p className="text-slate-300 text-[11px] mt-1 leading-relaxed">{n.message}</p>
-                        <span className="text-[9px] text-slate-500 font-mono mt-2 block">
-                          {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <span className="text-[9px] text-slate-500 font-mono mt-1.5 block">
+                          {n.created_at ? new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
                         </span>
                       </div>
                     ))
@@ -159,7 +171,7 @@ export default function DashboardNavbar({ profile, role }) {
             )}
           </div>
 
-          {/* User Profile Avatar & Mini-Card Dropdown */}
+          {/* 👤 Profile Menu & Identity Card */}
           <div className="relative" ref={profileRef}>
             <button 
               onClick={() => {
@@ -175,16 +187,17 @@ export default function DashboardNavbar({ profile, role }) {
               />
             </button>
 
+            {/* Profile Dropdown Drawer */}
             {showProfileMenu && (
               <div className="absolute right-0 mt-3 w-72 bg-[#0d0e15] border border-white/10 rounded-3xl shadow-2xl p-5 z-50 animate-in fade-in duration-200">
                 <div className="flex items-center gap-3 pb-4 border-b border-white/10">
                   <img 
-                    src={profile?.profile_pic} 
+                    src={profile?.profile_pic || 'https://api.dicebear.com/7.x/identicon/svg?seed=user'} 
                     alt="Avatar" 
                     className="w-12 h-12 rounded-2xl object-cover border border-white/10" 
                   />
                   <div>
-                    <h4 className="text-sm font-bold text-white leading-tight">{profile?.full_name}</h4>
+                    <h4 className="text-sm font-bold text-white leading-tight">{profile?.full_name || 'Verified Member'}</h4>
                     <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-md font-bold mt-1 inline-block ${role === 'admin' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
                       {role}
                     </span>
@@ -193,12 +206,12 @@ export default function DashboardNavbar({ profile, role }) {
 
                 <div className="py-3 space-y-2 text-xs text-slate-400">
                   <div className="flex justify-between">
-                    <span>{role === 'admin' ? 'EMP ID:' : 'Enrollment:'}</span>
-                    <span className="font-mono text-white">{profile?.emp_id || profile?.enrollment_no}</span>
+                    <span>{role === 'admin' ? 'Staff ID:' : 'Enrollment:'}</span>
+                    <span className="font-mono text-white">{profile?.emp_id || profile?.enrollment_no || 'Verified'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Phone:</span>
-                    <span className="text-white">{profile?.phone_no}</span>
+                    <span className="text-white">{profile?.phone_no || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Email:</span>
@@ -208,7 +221,7 @@ export default function DashboardNavbar({ profile, role }) {
 
                 <button 
                   onClick={handleLogout}
-                  className="w-full mt-3 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold rounded-xl text-xs border border-red-500/20 transition-all"
+                  className="w-full mt-3 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold rounded-xl text-xs border border-red-500/20 transition-all cursor-pointer"
                 >
                   Terminate Session (Logout)
                 </button>
