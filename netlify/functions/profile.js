@@ -1,64 +1,68 @@
 import { neon } from '@neondatabase/serverless';
 
 export const handler = async (event) => {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+  }
+
   const dbUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED || process.env.NETLIFY_DATABASE_URL;
   if (!dbUrl) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Database URL not configured' }) };
+    return { statusCode: 500, body: JSON.stringify({ error: 'Database configuration missing.' }) };
   }
   const sql = neon(dbUrl);
 
   try {
     const { action, email, role, profileData } = JSON.parse(event.body || '{}');
 
-    // 1. Check if Profile is already Setup & Fetch Details
+    if (!email) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Email parameter required.' }) };
+    }
+
+    // --- Check Profile Existence ---
     if (action === 'get-profile') {
-      let profile = [];
+      let profiles = [];
       if (role === 'admin') {
-        profile = await sql`SELECT * FROM admin_profiles WHERE email = ${email}`;
+        profiles = await sql`SELECT full_name, emp_id, phone_no, profile_pic, email FROM admin_profiles WHERE email = ${email}`;
       } else {
-        profile = await sql`SELECT * FROM student_profiles WHERE email = ${email}`;
+        profiles = await sql`SELECT full_name, enrollment_no, phone_no, profile_pic, email FROM student_profiles WHERE email = ${email}`;
       }
 
-      if (profile.length === 0) {
-        return { statusCode: 200, body: JSON.stringify({ isSetup: false, profile: null }) };
+      // Agar email database mein already present hai:
+      if (profiles.length > 0 && profiles[0].full_name) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            isSetup: true,
+            profile: profiles[0]
+          })
+        };
       }
 
-      // Fetch unread notifications
-      const userRows = await sql`SELECT id FROM users WHERE email = ${email}`;
-      let notifications = [];
-      if (userRows.length > 0) {
-        notifications = await sql`
-          SELECT * FROM notifications 
-          WHERE user_id = ${userRows[0].id} OR role = ${role}
-          ORDER BY created_at DESC LIMIT 10
-        `;
-      }
-
-      return { 
-        statusCode: 200, 
-        body: JSON.stringify({ 
-          isSetup: true, 
-          profile: profile[0],
-          notifications 
-        }) 
+      // Agar entry nahi hai (First-time user):
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          isSetup: false,
+          profile: null
+        })
       };
     }
 
-    // 2. Save / Update Profile
+    // --- Save / Update Profile ---
     if (action === 'save-profile') {
       const { fullName, uniqueId, phoneNo, profilePic } = profileData;
 
       const userRows = await sql`SELECT id FROM users WHERE email = ${email}`;
       if (userRows.length === 0) {
-        return { statusCode: 404, body: JSON.stringify({ error: 'User not registered.' }) };
+        return { statusCode: 404, body: JSON.stringify({ error: 'User registration not found.' }) };
       }
       const userId = userRows[0].id;
 
       if (role === 'admin') {
-        // Unique Employee ID validation
-        const exists = await sql`SELECT id FROM admin_profiles WHERE emp_id = ${uniqueId} AND email != ${email}`;
-        if (exists.length > 0) {
-          return { statusCode: 400, body: JSON.stringify({ error: 'Employee ID already exists. Please verify.' }) };
+        // Unique Employee ID check
+        const idClash = await sql`SELECT id FROM admin_profiles WHERE emp_id = ${uniqueId} AND email != ${email}`;
+        if (idClash.length > 0) {
+          return { statusCode: 400, body: JSON.stringify({ error: 'Employee ID already bound to another profile.' }) };
         }
 
         const saved = await sql`
@@ -66,15 +70,15 @@ export const handler = async (event) => {
           VALUES (${userId}, ${email}, ${fullName}, ${uniqueId}, ${phoneNo}, ${profilePic})
           ON CONFLICT (email) 
           DO UPDATE SET full_name = ${fullName}, emp_id = ${uniqueId}, phone_no = ${phoneNo}, profile_pic = ${profilePic}, updated_at = CURRENT_TIMESTAMP
-          RETURNING *
+          RETURNING full_name, emp_id, phone_no, profile_pic, email
         `;
 
         return { statusCode: 200, body: JSON.stringify({ success: true, profile: saved[0] }) };
       } else {
-        // Unique Enrollment Number validation
-        const exists = await sql`SELECT id FROM student_profiles WHERE enrollment_no = ${uniqueId} AND email != ${email}`;
-        if (exists.length > 0) {
-          return { statusCode: 400, body: JSON.stringify({ error: 'Enrollment Number already in use by another student.' }) };
+        // Unique Enrollment check
+        const idClash = await sql`SELECT id FROM student_profiles WHERE enrollment_no = ${uniqueId} AND email != ${email}`;
+        if (idClash.length > 0) {
+          return { statusCode: 400, body: JSON.stringify({ error: 'Enrollment Number already in use.' }) };
         }
 
         const saved = await sql`
@@ -82,16 +86,16 @@ export const handler = async (event) => {
           VALUES (${userId}, ${email}, ${fullName}, ${uniqueId}, ${phoneNo}, ${profilePic})
           ON CONFLICT (email) 
           DO UPDATE SET full_name = ${fullName}, enrollment_no = ${uniqueId}, phone_no = ${phoneNo}, profile_pic = ${profilePic}, updated_at = CURRENT_TIMESTAMP
-          RETURNING *
+          RETURNING full_name, enrollment_no, phone_no, profile_pic, email
         `;
 
         return { statusCode: 200, body: JSON.stringify({ success: true, profile: saved[0] }) };
       }
     }
 
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid action.' }) };
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid action parameter.' }) };
   } catch (error) {
-    console.error('Profile Error:', error);
+    console.error('PROFILE_ERROR:', error);
     return { statusCode: 500, body: JSON.stringify({ error: `Server error: ${error.message}` }) };
   }
 };
