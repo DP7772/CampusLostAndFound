@@ -787,108 +787,83 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 👤 PROVISION USER MODAL (NO OTP) */}
+{/* 👤 SMALL & SIMPLE USER CREATION MODAL */}
       {isCreateUserModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200"
           onClick={() => setIsCreateUserModalOpen(false)}
         >
           <div
-            className="w-full max-w-lg bg-[#0e0f18] border border-white/20 rounded-3xl p-6 shadow-2xl space-y-5"
+            className="w-full max-w-sm bg-[#0e0f18] border border-white/20 rounded-3xl p-6 shadow-2xl space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center pb-3 border-b border-white/10">
-              <h3 className="text-base font-bold text-white">Direct Member Provisioning</h3>
+            <div className="flex justify-between items-center pb-2 border-b border-white/10">
+              <h3 className="text-sm font-bold text-white">Direct User Register</h3>
               <button
                 onClick={() => setIsCreateUserModalOpen(false)}
-                className="text-slate-400 hover:text-white cursor-pointer"
+                className="text-slate-400 hover:text-white cursor-pointer text-sm"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="space-y-4 text-xs">
+            <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
+              {/* Email */}
               <div>
-                <label className="text-slate-400 block mb-1">Full Legal Name</label>
+                <label className="text-slate-400 block mb-1">Email</label>
                 <input
-                  type="text"
+                  type="email"
                   required
-                  value={newUserForm.fullName}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, fullName: e.target.value })}
-                  placeholder="e.g. Rahul Sharma"
-                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-purple-500 focus:outline-none"
+                  value={newUserForm.email}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
+                  placeholder="user@gecd.edu"
+                  className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-400 block mb-1">Email Address</label>
-                  <input
-                    type="email"
-                    required
-                    value={newUserForm.email}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
-                    placeholder="user@college.edu"
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-purple-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">Assign Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={newUserForm.password}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
-                    placeholder="Minimum 6 chars"
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-purple-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-400 block mb-1">System Role</label>
-                  <select
-                    value={newUserForm.role}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
-                    className="w-full bg-black border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-purple-500 focus:outline-none"
-                  >
-                    <option value="student">Student</option>
-                    <option value="admin">Administrator</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">
-                    {newUserForm.role === 'admin' ? 'Employee ID' : 'Enrollment No.'}
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newUserForm.identifier}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, identifier: e.target.value })}
-                    placeholder={newUserForm.role === 'admin' ? 'EMP-9021' : '210200107000'}
-                    className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-purple-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
+              {/* Password */}
               <div>
-                <label className="text-slate-400 block mb-1">Mobile Contact</label>
+                <label className="text-slate-400 block mb-1">Password</label>
                 <input
-                  type="tel"
+                  type="password"
                   required
-                  value={newUserForm.phone}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, phone: e.target.value })}
-                  placeholder="+91 9876543210"
-                  className="w-full bg-black border border-white/10 rounded-xl px-3.5 py-2.5 text-white focus:border-purple-500 focus:outline-none"
+                  value={newUserForm.password}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                  placeholder="Set login password"
+                  className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-white focus:border-purple-500 focus:outline-none"
                 />
+              </div>
+
+              {/* Role Dropdown */}
+              <div>
+                <label className="text-slate-400 block mb-1">Role</label>
+                <select
+                  value={newUserForm.role}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                  className="w-full bg-black border border-white/10 rounded-xl px-3 py-2 text-white focus:border-purple-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="student">Student</option>
+                  <option value="admin">Admin</option>
+                </select>
               </div>
 
               {createUserError && (
-                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs font-mono">
+                <div className="p-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-[11px] font-mono">
                   ❌ {createUserError}
                 </div>
               )}
+
+              <button
+                type="submit"
+                disabled={createUserLoading}
+                className="w-full py-2.5 mt-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-purple-600/30"
+              >
+                {createUserLoading ? 'Registering...' : 'Create Account'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
               <button
                 type="submit"
