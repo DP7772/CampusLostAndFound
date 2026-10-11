@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardNavbar from '../components/DashboardNavbar';
 import ProfileSetupModal from '../components/ProfileSetupModal';
@@ -37,14 +37,18 @@ export default function AdminDashboard() {
     type: 'approve' // 'approve' | 'reject' | 'provision' | 'error'
   });
 
+  // Action Loading state for buttons
   const [processingClaim, setProcessingClaim] = useState(false);
 
-  // 👤 Small User Creation Modal State (Direct Register: Email, Password, Role)
+  // 👤 User Provisioning Modal
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [newUserForm, setNewUserForm] = useState({
+    fullName: '',
     email: '',
     password: '',
-    role: 'student'
+    role: 'student',
+    phone: '',
+    identifier: ''
   });
   const [createUserLoading, setCreateUserLoading] = useState(false);
   const [createUserError, setCreateUserError] = useState('');
@@ -63,10 +67,11 @@ export default function AdminDashboard() {
       const gain = ctx.createGain();
 
       if (type === 'success') {
+        // High tone double chime (Paytm sound style)
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(523.25, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.12);
-        osc.frequency.exponentialRampToValueAtTime(1046.50, ctx.currentTime + 0.25);
+        osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+        osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.12); // G5
+        osc.frequency.exponentialRampToValueAtTime(1046.50, ctx.currentTime + 0.25); // C6
         gain.gain.setValueAtTime(0.3, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
         osc.connect(gain);
@@ -74,6 +79,7 @@ export default function AdminDashboard() {
         osc.start();
         osc.stop(ctx.currentTime + 0.5);
       } else {
+        // Reject / Alert low blip
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(320.0, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(180.0, ctx.currentTime + 0.2);
@@ -85,10 +91,11 @@ export default function AdminDashboard() {
         osc.stop(ctx.currentTime + 0.25);
       }
     } catch (e) {
-      console.warn('Audio feedback blocked:', e);
+      console.warn('Audio feedback blocked by autoplay policy:', e);
     }
   };
 
+  // Load Feed Data
   const fetchFeed = () => {
     fetch('/api/items', {
       method: 'POST',
@@ -101,8 +108,6 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    document.title = 'Authority Console | Campus L&F';
-
     const storedUser = localStorage.getItem('user');
     const token = localStorage.getItem('token');
 
@@ -118,6 +123,7 @@ export default function AdminDashboard() {
     }
     setUser(parsed);
 
+    // Profile check
     fetch('/api/profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -137,6 +143,7 @@ export default function AdminDashboard() {
     fetchFeed();
   }, [navigate]);
 
+  // Load claims for selected item in Theater mode
   const openTheater = (item) => {
     setSelectedTheaterItem(item);
     setClaimsLoading(true);
@@ -151,6 +158,7 @@ export default function AdminDashboard() {
       .finally(() => setClaimsLoading(false));
   };
 
+  // Trigger Paytm-Style Confirmation Dialog
   const promptClaimAction = (claim, decision) => {
     setConfirmModal({
       isOpen: true,
@@ -161,6 +169,7 @@ export default function AdminDashboard() {
     });
   };
 
+  // Execute Confirmed Claim Decision (Zero Native Alerts)
   const executeConfirmedDecision = async () => {
     const { claimId, decision, claimantName } = confirmModal;
     setProcessingClaim(true);
@@ -175,6 +184,7 @@ export default function AdminDashboard() {
         })
       });
       const data = await res.json();
+
       setProcessingClaim(false);
       setConfirmModal({ isOpen: false, decision: null, claimId: null, claimantName: '', enrollmentNo: '' });
 
@@ -184,19 +194,20 @@ export default function AdminDashboard() {
           setSuccessModal({
             isOpen: true,
             type: 'approve',
-            title: 'Asset Recovery Verified!',
-            message: `Found and handed in by ${claimantName || 'Verified Student'}. Case closed.`
+            title: 'Claim Approved & Verified!',
+            message: `Asset has been handed over to ${claimantName || 'Claimant'}. Competing claims rejected and case closed permanently.`
           });
           fetchFeed();
-          setSelectedTheaterItem(null);
+          setSelectedTheaterItem(null); // Close theater on case resolution
         } else {
           playPaytmChime('reject');
           setSuccessModal({
             isOpen: true,
             type: 'reject',
             title: 'Claim Rejected',
-            message: `Claim submission by ${claimantName || 'Student'} has been discarded.`
+            message: `The claim submitted by ${claimantName || 'Claimant'} has been discarded.`
           });
+          // Re-fetch remaining claims in theater
           openTheater(selectedTheaterItem);
         }
       } else {
@@ -205,7 +216,7 @@ export default function AdminDashboard() {
           isOpen: true,
           type: 'error',
           title: 'Operation Failed',
-          message: data.error || 'Server error occurred.'
+          message: data.error || 'Server rejected the request.'
         });
       }
     } catch (e) {
@@ -214,12 +225,13 @@ export default function AdminDashboard() {
       setSuccessModal({
         isOpen: true,
         type: 'error',
-        title: 'Communication Error',
-        message: 'Could not reach database server.'
+        title: 'Network Communication Error',
+        message: 'Could not connect to database server.'
       });
     }
   };
 
+  // Direct User Creation
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setCreateUserLoading(true);
@@ -240,16 +252,16 @@ export default function AdminDashboard() {
         setSuccessModal({
           isOpen: true,
           type: 'provision',
-          title: 'Account Created!',
-          message: `${newUserForm.email} (${newUserForm.role.toUpperCase()}) registered successfully.`
+          title: 'Account Created Successfully!',
+          message: `${newUserForm.fullName} (${newUserForm.role.toUpperCase()}) is now registered and can log in without OTP.`
         });
-        setNewUserForm({ email: '', password: '', role: 'student' });
+        setNewUserForm({ fullName: '', email: '', password: '', role: 'student', phone: '', identifier: '' });
       } else {
-        setCreateUserError(data.error || 'Failed to register account.');
+        setCreateUserError(data.error || 'Failed to register');
       }
     } catch (err) {
       setCreateUserLoading(false);
-      setCreateUserError('Server communication failed.');
+      setCreateUserError('Server request failed.');
     }
   };
 
@@ -289,7 +301,7 @@ export default function AdminDashboard() {
       />
 
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 space-y-8">
-        {/* Banner */}
+        {/* Admin Header Banner */}
         <div className="p-8 rounded-3xl bg-gradient-to-r from-purple-950/40 via-indigo-950/30 to-blue-950/20 border border-purple-500/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
             <span className="text-[10px] font-mono uppercase bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full font-bold">
@@ -297,7 +309,7 @@ export default function AdminDashboard() {
             </span>
             <h1 className="text-3xl font-black text-white mt-2">Authority Claim Console</h1>
             <p className="text-slate-400 text-xs mt-1 max-w-xl">
-              Inspect reported items, cross-examine ownership claims in Theater View, and verify handovers.
+              Inspect reported items, cross-examine ownership claims in Theater View, and grant verified handovers.
             </p>
           </div>
 
@@ -308,11 +320,11 @@ export default function AdminDashboard() {
             }}
             className="px-6 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-purple-600/30 flex items-center gap-2 cursor-pointer"
           >
-            <span>+</span> Register User (No OTP)
+            <span>+</span> Provision User (No OTP)
           </button>
         </div>
 
-        {/* Tabs & Search */}
+        {/* Tab Controls & Search */}
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 pb-2 border-b border-white/10">
           <div className="flex gap-6">
             <button
@@ -333,7 +345,7 @@ export default function AdminDashboard() {
                 activeTab === 'resolved' ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400 hover:text-white'
               }`}
             >
-              <span>🔒 Verified & Recovered</span>
+              <span>🔒 Verified & Handed Over</span>
               <span className="text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full font-mono">
                 {feedItems.filter((i) => i.status === 'resolved').length}
               </span>
@@ -344,7 +356,7 @@ export default function AdminDashboard() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search tracking ID, title, zone..."
+            placeholder="Search tracking ID, item title, zones..."
             className="w-full md:w-80 bg-black border border-white/10 text-white rounded-xl px-4 py-2 text-xs focus:border-purple-500 focus:outline-none"
           />
         </div>
@@ -353,8 +365,20 @@ export default function AdminDashboard() {
         {filteredItems.length === 0 ? (
           <div className="text-center py-20 bg-[#0a0b12]/50 border border-white/5 rounded-3xl">
             <span className="text-4xl">📂</span>
-            <h3 className="text-lg font-bold text-white mt-3">No Records Under Current Scope</h3>
-            <p className="text-xs text-slate-500 mt-1">Items will appear here once reported.</p>
+            <h3 className="text-lg font-black text-white">
+  {confirmModal.decision === 'approve' ? 'Verify Asset Recovery?' : 'Reject This Submission?'}
+</h3>
+<p className="text-xs text-slate-300">
+  {confirmModal.decision === 'approve' ? (
+    <>
+      Confirm that this asset was found and handed in by <span className="font-bold text-white">{confirmModal.claimantName}</span> ({confirmModal.enrollmentNo})?
+    </>
+  ) : (
+    <>
+      Are you sure you want to reject the claim submission by <span className="font-bold text-white">{confirmModal.claimantName}</span>?
+    </>
+  )}
+</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -377,7 +401,7 @@ export default function AdminDashboard() {
                     <div className="absolute top-3 right-3">
                       {item.status === 'resolved' ? (
                         <span className="bg-emerald-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold">
-                          RECOVERED
+                          CLOSED
                         </span>
                       ) : item.status === 'claim_pending' ? (
                         <span className="bg-amber-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold animate-pulse">
@@ -400,22 +424,11 @@ export default function AdminDashboard() {
                         {item.category}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-400 line-clamp-2">{item.description || 'No descriptive marks logged.'}</p>
+                    <p className="text-xs text-slate-400 line-clamp-2">{item.description || 'No additional notes logged.'}</p>
                     <div className="pt-2 text-[11px] text-slate-400 space-y-1">
                       <p>📍 Location: <span className="text-slate-200">{item.location}</span></p>
                       <p>🕒 Logged: <span className="text-slate-200">{item.lost_date}</span></p>
                     </div>
-
-                    {item.status === 'resolved' && (
-                      <div className="mt-3 p-3 rounded-xl bg-purple-950/20 border border-purple-500/30 text-xs space-y-1">
-                        <p className="text-purple-300 font-bold flex items-center gap-1">
-                          <span>🛡️</span> Recovered & Case Closed
-                        </p>
-                        <p className="text-slate-400 text-[11px]">
-                          Found & Handed in by: <span className="font-bold text-white">{item.approved_claimant_name}</span> ({item.approved_claimant_enrollment})
-                        </p>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -430,7 +443,7 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* 🎬 THEATER MODAL */}
+      {/* 🎬 YOUTUBE-STYLE SPLIT THEATER MODAL */}
       {selectedTheaterItem && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/90 backdrop-blur-2xl animate-in fade-in duration-200"
@@ -440,6 +453,7 @@ export default function AdminDashboard() {
             className="relative w-full max-w-7xl h-[92vh] bg-[#0c0d16] border border-white/20 rounded-3xl overflow-hidden shadow-2xl flex flex-col md:flex-row"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Top Close Button */}
             <button
               onClick={() => setSelectedTheaterItem(null)}
               className="absolute top-4 right-4 z-20 bg-black/80 hover:bg-white/20 text-white p-2.5 rounded-full border border-white/20 transition-all cursor-pointer"
@@ -447,7 +461,7 @@ export default function AdminDashboard() {
               ✕
             </button>
 
-            {/* LEFT 62% */}
+            {/* LEFT 65%: MAIN PLAYER AREA */}
             <div className="w-full md:w-[62%] h-full p-6 md:p-8 flex flex-col justify-between overflow-y-auto border-b md:border-b-0 md:border-r border-white/10">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -457,6 +471,7 @@ export default function AdminDashboard() {
                   <span className="text-xs font-mono text-slate-400">ID: {selectedTheaterItem.tracking_id}</span>
                 </div>
 
+                {/* Theater Main Frame */}
                 <div className="w-full h-72 md:h-96 rounded-2xl bg-black border border-white/10 overflow-hidden flex items-center justify-center relative shadow-inner">
                   <img
                     src={selectedTheaterItem.item_pic}
@@ -471,14 +486,15 @@ export default function AdminDashboard() {
                 <div>
                   <h2 className="text-2xl font-black text-white">{selectedTheaterItem.title}</h2>
                   <p className="text-xs text-slate-300 mt-2 leading-relaxed bg-white/5 p-4 rounded-xl border border-white/5">
-                    {selectedTheaterItem.description || 'No descriptive marks logged.'}
+                    {selectedTheaterItem.description || 'No descriptive marks logged by reporter.'}
                   </p>
                 </div>
               </div>
 
+              {/* Status Ribbon */}
               <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                 <div>
-                  <p className="text-slate-500 text-[10px] uppercase font-bold">Zone</p>
+                  <p className="text-slate-500 text-[10px] uppercase font-bold">Zone / Location</p>
                   <p className="font-bold text-white mt-0.5">{selectedTheaterItem.location}</p>
                 </div>
                 <div>
@@ -490,25 +506,26 @@ export default function AdminDashboard() {
                   <p className="font-mono text-slate-200 mt-0.5">{selectedTheaterItem.lost_time || 'N/A'}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500 text-[10px] uppercase font-bold">Status</p>
+                  <p className="text-slate-500 text-[10px] uppercase font-bold">Current Status</p>
                   <p className="font-bold text-purple-400 uppercase mt-0.5">{selectedTheaterItem.status}</p>
                 </div>
               </div>
             </div>
 
-            {/* RIGHT 38% */}
+            {/* RIGHT 35%: YOUTUBE PLAYLIST STYLE CLAIMANT STREAM */}
             <div className="w-full md:w-[38%] h-full bg-[#080910] p-6 flex flex-col justify-between">
               <div>
                 <div className="flex justify-between items-center pb-4 border-b border-white/10">
                   <div>
                     <h3 className="text-sm font-bold text-white uppercase tracking-wider">Claims Playlist</h3>
-                    <p className="text-[11px] text-slate-400">Student submissions</p>
+                    <p className="text-[11px] text-slate-400">Competing verified student submissions</p>
                   </div>
                   <span className="text-xs font-mono bg-purple-500/20 text-purple-400 px-2.5 py-1 rounded-full font-bold">
                     {itemClaims.length} Claims
                   </span>
                 </div>
 
+                {/* Playlist Scroll Container */}
                 <div className="mt-4 space-y-3.5 max-h-[60vh] overflow-y-auto pr-1">
                   {claimsLoading ? (
                     <div className="text-center py-12">
@@ -519,7 +536,7 @@ export default function AdminDashboard() {
                     <div className="text-center py-16 bg-white/5 rounded-2xl border border-white/5 p-6">
                       <span className="text-3xl">📭</span>
                       <p className="text-xs font-bold text-white mt-2">No Claims Filed Yet</p>
-                      <p className="text-[11px] text-slate-400 mt-1">This asset has not been claimed by any student.</p>
+                      <p className="text-[11px] text-slate-400 mt-1">This asset has not been contested by any student.</p>
                     </div>
                   ) : (
                     itemClaims.map((claim) => (
@@ -533,6 +550,7 @@ export default function AdminDashboard() {
                             : 'bg-white/5 border-white/10 hover:border-purple-500/30'
                         }`}
                       >
+                        {/* Claimant Card Header */}
                         <div className="flex gap-3 items-center">
                           <img
                             src={claim.proof_pic || 'https://via.placeholder.com/80'}
@@ -548,6 +566,7 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
+                        {/* Claim Metadata */}
                         <div className="bg-black/50 p-2.5 rounded-xl border border-white/5 text-[11px] space-y-1">
                           <p className="text-slate-400">
                             Identifier: <span className="text-white font-mono">{claim.unique_identifier || 'None'}</span>
@@ -557,6 +576,7 @@ export default function AdminDashboard() {
                           </p>
                         </div>
 
+                        {/* Action Buttons: Cross Red (Reject) / Green Tick (Approve) */}
                         {claim.status === 'pending' && selectedTheaterItem.status !== 'resolved' && (
                           <div className="flex gap-2 pt-1">
                             <button
@@ -576,7 +596,7 @@ export default function AdminDashboard() {
 
                         {claim.status === 'approved' && (
                           <div className="text-center py-1 text-xs font-bold text-emerald-400 bg-emerald-500/10 rounded-lg">
-                            ✓ VERIFIED & RECOVERED
+                            ✓ VERIFIED & HANDED OVER
                           </div>
                         )}
 
@@ -595,7 +615,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 💳 ACTION CONFIRMATION MODAL */}
+      {/* 💳 PAYTM-STYLE ACTION CONFIRMATION POPUP MODAL */}
       {confirmModal.isOpen && (
         <div
           className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200"
@@ -605,6 +625,7 @@ export default function AdminDashboard() {
             className="w-full max-w-sm bg-[#0e101a] border border-white/20 rounded-3xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.8)] text-center relative space-y-5"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Glowing Action Circle Icon (Paytm Style) */}
             <div className="flex justify-center">
               {confirmModal.decision === 'approve' ? (
                 <div className="relative">
@@ -623,28 +644,30 @@ export default function AdminDashboard() {
               )}
             </div>
 
+            {/* Modal Text Content */}
             <div className="space-y-1.5">
               <h3 className="text-lg font-black text-white">
-                {confirmModal.decision === 'approve' ? 'Verify Asset Recovery?' : 'Reject This Claim?'}
+                {confirmModal.decision === 'approve' ? 'Confirm Item Handover?' : 'Reject This Claim?'}
               </h3>
               <p className="text-xs text-slate-300">
                 {confirmModal.decision === 'approve' ? (
                   <>
-                    Confirm that this asset was found and handed in by <span className="font-bold text-white">{confirmModal.claimantName}</span> ({confirmModal.enrollmentNo})?
+                    Are you sure you want to approve claim of <span className="font-bold text-white">{confirmModal.claimantName}</span> ({confirmModal.enrollmentNo})?
                   </>
                 ) : (
                   <>
-                    Are you sure you want to reject the claim submission by <span className="font-bold text-white">{confirmModal.claimantName}</span>?
+                    Are you sure you want to reject the claim submitted by <span className="font-bold text-white">{confirmModal.claimantName}</span>?
                   </>
                 )}
               </p>
               {confirmModal.decision === 'approve' && (
                 <p className="text-[11px] font-mono text-emerald-400/90 bg-emerald-950/30 py-1.5 px-3 rounded-xl border border-emerald-500/20 mt-2">
-                  ⚡ All other claims auto-reject & case closed.
+                  ⚡ All other competing claims will auto-reject & case will be permanently closed.
                 </p>
               )}
             </div>
 
+            {/* Modal Buttons */}
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
@@ -675,7 +698,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 🎉 SUCCESS / CELEBRATION MODAL */}
+      {/* 🎉 PAYTM-STYLE SUCCESS CELEBRATION MODAL */}
       {successModal.isOpen && (
         <div
           className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200"
@@ -689,6 +712,7 @@ export default function AdminDashboard() {
             }`}
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Animated Paytm-Style Checkmark */}
             <div className="flex justify-center">
               <div className="relative">
                 <div
@@ -714,6 +738,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            {/* Success Message */}
             <div className="space-y-1">
               <span
                 className={`text-[10px] font-mono font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
@@ -728,6 +753,7 @@ export default function AdminDashboard() {
               <p className="text-xs text-slate-300 leading-relaxed pt-1">{successModal.message}</p>
             </div>
 
+            {/* Done Action Button */}
             <button
               onClick={() => setSuccessModal({ ...successModal, isOpen: false })}
               className={`w-full py-3 text-white rounded-2xl text-xs font-bold uppercase tracking-wider transition-all shadow-lg cursor-pointer ${
@@ -742,7 +768,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 🔍 LIGHTBOX */}
+      {/* 🔍 CLAIMANT PROOF HIGH-RES LIGHTBOX */}
       {zoomedProof && (
         <div
           className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl"
@@ -761,7 +787,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 👤 SMALL & CLEAN DIRECT REGISTER MODAL */}
+      {/* 👤 SMALL & SIMPLE USER CREATION MODAL */}
       {isCreateUserModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200"
@@ -772,7 +798,7 @@ export default function AdminDashboard() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center pb-2 border-b border-white/10">
-              <h3 className="text-sm font-bold text-white">Direct Member Register</h3>
+              <h3 className="text-sm font-bold text-white">Direct User Register</h3>
               <button
                 onClick={() => setIsCreateUserModalOpen(false)}
                 className="text-slate-400 hover:text-white cursor-pointer text-sm"
@@ -782,6 +808,7 @@ export default function AdminDashboard() {
             </div>
 
             <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
+              {/* Email */}
               <div>
                 <label className="text-slate-400 block mb-1">Email</label>
                 <input
@@ -794,6 +821,7 @@ export default function AdminDashboard() {
                 />
               </div>
 
+              {/* Password */}
               <div>
                 <label className="text-slate-400 block mb-1">Password</label>
                 <input
@@ -806,6 +834,7 @@ export default function AdminDashboard() {
                 />
               </div>
 
+              {/* Role Dropdown */}
               <div>
                 <label className="text-slate-400 block mb-1">Role</label>
                 <select
