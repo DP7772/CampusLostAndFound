@@ -365,8 +365,20 @@ export default function AdminDashboard() {
         {filteredItems.length === 0 ? (
           <div className="text-center py-20 bg-[#0a0b12]/50 border border-white/5 rounded-3xl">
             <span className="text-4xl">📂</span>
-            <h3 className="text-lg font-bold text-white mt-3">No Records Under Current Scope</h3>
-            <p className="text-xs text-slate-500 mt-1">Items will appear here once students submit reports.</p>
+            <h3 className="text-lg font-black text-white">
+  {confirmModal.decision === 'approve' ? 'Verify Asset Recovery?' : 'Reject This Submission?'}
+</h3>
+<p className="text-xs text-slate-300">
+  {confirmModal.decision === 'approve' ? (
+    <>
+      Confirm that this asset was found and handed in by <span className="font-bold text-white">{confirmModal.claimantName}</span> ({confirmModal.enrollmentNo})?
+    </>
+  ) : (
+    <>
+      Are you sure you want to reject the claim submission by <span className="font-bold text-white">{confirmModal.claimantName}</span>?
+    </>
+  )}
+</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
