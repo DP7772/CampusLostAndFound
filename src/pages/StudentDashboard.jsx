@@ -11,7 +11,10 @@ export default function StudentDashboard() {
   const [isSetupNeeded, setIsSetupNeeded] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Feed State
+  // Tab State: 'active' vs 'resolved'
+  const [activeTab, setActiveTab] = useState('active');
+
+  // Feed Data
   const [feedItems, setFeedItems] = useState([]);
   const [availableCategories, setAvailableCategories] = useState([]);
   const [availableLocations, setAvailableLocations] = useState([]);
@@ -25,13 +28,10 @@ export default function StudentDashboard() {
   // Modals
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [claimTargetItem, setClaimTargetItem] = useState(null);
-
-  // 🔍 Image Lightbox State (Photo Click Preview)
   const [previewImage, setPreviewImage] = useState(null);
 
   const navigate = useNavigate();
 
-  // Load Feed Data
   const fetchFeed = (userEmail) => {
     fetch('/api/items', {
       method: 'POST',
@@ -63,7 +63,6 @@ export default function StudentDashboard() {
     }
     setUser(parsed);
 
-    // Profile Existence Check
     fetch('/api/profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -84,9 +83,13 @@ export default function StudentDashboard() {
     fetchFeed(parsed.email);
   }, [navigate]);
 
-  // Dynamic Filtering Logic
+  // Split items into Active vs Resolved
   const filteredItems = useMemo(() => {
     return feedItems.filter((item) => {
+      // Tab check
+      if (activeTab === 'active' && item.status === 'resolved') return false;
+      if (activeTab === 'resolved' && item.status !== 'resolved') return false;
+
       const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             item.tracking_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             item.description?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -96,7 +99,7 @@ export default function StudentDashboard() {
 
       return matchesSearch && matchesCategory && matchesLocation && matchesDate;
     });
-  }, [feedItems, searchQuery, selectedCategory, selectedLocation, selectedDate]);
+  }, [feedItems, activeTab, searchQuery, selectedCategory, selectedLocation, selectedDate]);
 
   if (loading) {
     return (
@@ -138,43 +141,29 @@ export default function StudentDashboard() {
         onSuccess={() => fetchFeed(user?.email)}
       />
 
-      {/* 🌟 IMAGE PREVIEW LIGHTBOX MODAL */}
+      {/* 🔍 Lightbox Preview */}
       {previewImage && (
         <div 
-          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-200"
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl"
           onClick={() => setPreviewImage(null)}
         >
           <div 
             className="relative max-w-4xl max-h-[90vh] bg-[#0c0d15] border border-white/20 rounded-3xl p-3 shadow-2xl flex flex-col items-center"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Close Button */}
             <button
               onClick={() => setPreviewImage(null)}
               className="absolute -top-4 -right-4 bg-black border border-white/20 text-white rounded-full p-2.5 hover:bg-white/10 hover:rotate-90 transition-all z-10 shadow-lg"
-              title="Close Preview"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-              </svg>
+              ✕
             </button>
-
-            {/* High-Res Image Display */}
             <div className="w-full max-h-[75vh] flex items-center justify-center overflow-hidden rounded-2xl bg-black">
-              <img 
-                src={previewImage.item_pic} 
-                alt={previewImage.title} 
-                className="max-h-[75vh] w-auto max-w-full object-contain"
-              />
+              <img src={previewImage.item_pic} alt={previewImage.title} className="max-h-[75vh] w-auto max-w-full object-contain" />
             </div>
-
-            {/* Bottom Meta Bar */}
-            <div className="w-full mt-3 px-4 py-2 bg-white/5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="w-full mt-3 px-4 py-2 bg-white/5 rounded-2xl flex items-center justify-between text-xs">
               <div>
                 <h4 className="font-bold text-white text-sm">{previewImage.title}</h4>
-                <p className="text-slate-400 text-[11px] font-mono mt-0.5">
-                  ID: <span className="text-blue-400">{previewImage.tracking_id}</span> • Location: {previewImage.location}
-                </p>
+                <p className="text-slate-400 text-[11px] font-mono mt-0.5">ID: {previewImage.tracking_id} • {previewImage.location}</p>
               </div>
               <span className="text-[10px] font-mono uppercase bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full font-bold">
                 {previewImage.category}
@@ -194,7 +183,7 @@ export default function StudentDashboard() {
             </span>
             <h1 className="text-3xl font-black text-white mt-2">Campus Recovery Grid</h1>
             <p className="text-slate-400 text-xs mt-1 max-w-xl">
-              Browse lost reports across college zones. Click on photographs to expand full view.
+              Browse lost reports across college zones. Verify ownership with physical proofs to initiate authority transfer.
             </p>
           </div>
           <button
@@ -202,6 +191,37 @@ export default function StudentDashboard() {
             className="px-6 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-blue-600/30 flex items-center gap-2 whitespace-nowrap"
           >
             <span>+</span> Report Lost Asset
+          </button>
+        </div>
+
+        {/* Tab Switcher: Live Active Feed vs Resolved Archive */}
+        <div className="flex border-b border-white/10 gap-6">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
+              activeTab === 'active' 
+                ? 'border-blue-500 text-blue-400' 
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>📡 Live Active Registry</span>
+            <span className="text-[10px] bg-blue-500/20 px-2 py-0.5 rounded-full font-mono">
+              {feedItems.filter(i => i.status !== 'resolved').length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('resolved')}
+            className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-all ${
+              activeTab === 'resolved' 
+                ? 'border-purple-500 text-purple-400' 
+                : 'border-transparent text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>🔒 Closed & Recovered Archive</span>
+            <span className="text-[10px] bg-purple-500/20 px-2 py-0.5 rounded-full font-mono">
+              {feedItems.filter(i => i.status === 'resolved').length}
+            </span>
           </button>
         </div>
 
@@ -215,7 +235,6 @@ export default function StudentDashboard() {
             className="w-full bg-black border border-white/10 text-white rounded-xl px-4 py-2.5 text-xs focus:border-blue-500 focus:outline-none"
           />
 
-          {/* Dynamic Categories */}
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
@@ -227,7 +246,6 @@ export default function StudentDashboard() {
             ))}
           </select>
 
-          {/* Dynamic Locations */}
           <select
             value={selectedLocation}
             onChange={(e) => setSelectedLocation(e.target.value)}
@@ -247,64 +265,45 @@ export default function StudentDashboard() {
           />
         </div>
 
-        {/* Modern Grid Feed */}
+        {/* Feed Cards */}
         {filteredItems.length === 0 ? (
           <div className="text-center py-20 bg-[#0a0b12]/50 border border-white/5 rounded-3xl">
-            <span className="text-4xl">📡</span>
-            <h3 className="text-lg font-bold text-white mt-3">No Misplaced Assets Reported Under Selected Filters</h3>
-            <p className="text-xs text-slate-500 mt-1">Try resetting the search terms or change zones.</p>
+            <span className="text-4xl">{activeTab === 'active' ? '📡' : '🔒'}</span>
+            <h3 className="text-lg font-bold text-white mt-3">
+              {activeTab === 'active' ? 'No Active Misplaced Items' : 'No Resolved Recoveries Archived Yet'}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">Try resetting search filters.</p>
           </div>
-        ) : (
+        ) : activeTab === 'active' ? (
+          /* 1. Live Active Registry Cards */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredItems.map((item) => (
               <div 
                 key={item.id} 
                 className="bg-[#0b0d14] border border-white/10 rounded-2xl overflow-hidden shadow-xl hover:border-blue-500/40 transition-all flex flex-col group"
               >
-                {/* 📸 Image Banner with Click-to-Zoom */}
                 <div 
                   className="relative h-56 bg-black overflow-hidden cursor-pointer"
                   onClick={() => setPreviewImage(item)}
                 >
-                  <img 
-                    src={item.item_pic} 
-                    alt={item.title} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                  />
-                  
-                  {/* Subtle Hover Hint to click */}
+                  <img src={item.item_pic} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="bg-black/70 backdrop-blur-md text-white text-xs px-3 py-1.5 rounded-full border border-white/20 font-medium flex items-center gap-1.5">
+                    <span className="bg-black/70 backdrop-blur-md text-white text-xs px-3 py-1.5 rounded-full border border-white/20 font-medium">
                       🔍 Click to Zoom
                     </span>
                   </div>
-
-                  {/* Tracking ID Badge */}
-                  <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md border border-white/10 px-3 py-1 rounded-full text-[10px] font-mono font-bold text-blue-400 pointer-events-none">
+                  <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md border border-white/10 px-3 py-1 rounded-full text-[10px] font-mono font-bold text-blue-400">
                     {item.tracking_id}
                   </div>
-
-                  {/* Status Badge */}
-                  <div className="absolute top-3 right-3 pointer-events-none">
-                    {item.status === 'available' && (
-                      <span className="bg-emerald-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold">
-                        OPEN
-                      </span>
-                    )}
-                    {item.status === 'claim_pending' && (
-                      <span className="bg-amber-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold animate-pulse">
-                        PENDING CLAIM
-                      </span>
-                    )}
-                    {item.status === 'resolved' && (
-                      <span className="bg-purple-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold">
-                        HANDOVER COMPLETE
-                      </span>
+                  <div className="absolute top-3 right-3">
+                    {item.status === 'available' ? (
+                      <span className="bg-emerald-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold">OPEN</span>
+                    ) : (
+                      <span className="bg-amber-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold animate-pulse">PENDING CLAIM</span>
                     )}
                   </div>
                 </div>
 
-                {/* Content */}
                 <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
                   <div>
                     <div className="flex justify-between items-start gap-2">
@@ -315,11 +314,7 @@ export default function StudentDashboard() {
                         {item.category}
                       </span>
                     </div>
-
-                    <p className="text-xs text-slate-400 mt-2 line-clamp-2">
-                      {item.description || 'No extra descriptive marks provided.'}
-                    </p>
-
+                    <p className="text-xs text-slate-400 mt-2 line-clamp-2">{item.description || 'No extra notes provided.'}</p>
                     <div className="mt-4 pt-3 border-t border-white/5 space-y-1.5 text-[11px] text-slate-400">
                       <div className="flex justify-between">
                         <span>📍 Location:</span>
@@ -332,15 +327,10 @@ export default function StudentDashboard() {
                     </div>
                   </div>
 
-                  {/* Action / Claim Button */}
                   <div className="pt-2">
                     {item.has_user_claimed ? (
                       <div className="w-full py-2.5 rounded-xl text-center text-xs font-mono font-bold border border-amber-500/30 bg-amber-500/10 text-amber-400">
                         ✓ CLAIM SUBMITTED ({item.user_claim_status?.toUpperCase()})
-                      </div>
-                    ) : item.status === 'resolved' ? (
-                      <div className="w-full py-2.5 rounded-xl text-center text-xs font-mono font-bold border border-purple-500/30 bg-purple-500/10 text-purple-400">
-                        CASE CLOSED BY ADMIN
                       </div>
                     ) : (
                       <button
@@ -350,6 +340,65 @@ export default function StudentDashboard() {
                         Claim This Item
                       </button>
                     )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* 2. Closed / Recovered Archive (Split View: Report vs Claimant) */
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {filteredItems.map((item) => (
+              <div 
+                key={item.id}
+                className="bg-[#0b0c14] border border-purple-500/30 rounded-3xl p-6 shadow-2xl space-y-5"
+              >
+                <div className="flex justify-between items-center pb-3 border-b border-white/10">
+                  <div>
+                    <span className="text-[10px] font-mono uppercase bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full font-bold">
+                      Case Closed & Handed Over
+                    </span>
+                    <h3 className="text-lg font-bold text-white mt-1.5">{item.title}</h3>
+                  </div>
+                  <span className="text-xs font-mono text-slate-400">ID: {item.tracking_id}</span>
+                </div>
+
+                {/* Two-Split Showcase: Reported Asset (Left) vs Verified Claimant Proof (Right) */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Left: Original Lost Photo */}
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Original Misplaced Asset</p>
+                    <div 
+                      className="h-44 rounded-2xl bg-black overflow-hidden border border-white/10 cursor-pointer"
+                      onClick={() => setPreviewImage(item)}
+                    >
+                      <img src={item.item_pic} alt="Lost Asset" className="w-full h-full object-cover hover:scale-105 transition-transform" />
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-mono">Lost at: {item.location}</p>
+                  </div>
+
+                  {/* Right: Verified Claimant Proof */}
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">Ownership Proof / Claim</p>
+                    <div 
+                      className="h-44 rounded-2xl bg-black overflow-hidden border border-purple-500/30 cursor-pointer"
+                      onClick={() => setPreviewImage({ item_pic: item.approved_claimant_proof, title: `Proof: ${item.title}`, tracking_id: item.tracking_id, location: item.location, category: item.category })}
+                    >
+                      <img src={item.approved_claimant_proof} alt="Claimant Proof" className="w-full h-full object-cover hover:scale-105 transition-transform" />
+                    </div>
+                    <p className="text-[10px] text-emerald-400 font-mono font-bold">✓ Verified by Authority</p>
+                  </div>
+                </div>
+
+                {/* Permanent Claimant Audit Strip */}
+                <div className="p-4 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between text-xs">
+                  <div>
+                    <p className="text-slate-400 text-[11px]">Handed Over To:</p>
+                    <p className="font-bold text-white text-sm">{item.approved_claimant_name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-slate-400 text-[11px]">Enrollment Number:</p>
+                    <p className="font-mono text-purple-300 font-bold">{item.approved_claimant_enrollment}</p>
                   </div>
                 </div>
               </div>
