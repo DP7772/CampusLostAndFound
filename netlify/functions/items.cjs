@@ -1,20 +1,20 @@
-import { neon } from '@neondatabase/serverless';
+const { neon } = require('@neondatabase/serverless');
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { 
-      statusCode: 405, 
+    return {
+      statusCode: 405,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Method Not Allowed' }) 
+      body: JSON.stringify({ error: 'Method Not Allowed' })
     };
   }
 
   const dbUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED || process.env.NETLIFY_DATABASE_URL;
   if (!dbUrl) {
-    return { 
-      statusCode: 500, 
+    return {
+      statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Database configuration missing.' }) 
+      body: JSON.stringify({ error: 'Database configuration missing.' })
     };
   }
   const sql = neon(dbUrl);
@@ -28,10 +28,10 @@ export const handler = async (event) => {
       
       const userRows = await sql`SELECT id FROM users WHERE email = ${email}`;
       if (userRows.length === 0) {
-        return { 
-          statusCode: 404, 
+        return {
+          statusCode: 404,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'User not found.' }) 
+          body: JSON.stringify({ error: 'User not found.' })
         };
       }
       const userId = userRows[0].id;
@@ -45,6 +45,7 @@ export const handler = async (event) => {
         ) RETURNING *
       `;
 
+      // 🔔 Global Notification
       await sql`
         INSERT INTO notifications (role, title, message, broadcast)
         VALUES (
@@ -55,10 +56,10 @@ export const handler = async (event) => {
         )
       `;
 
-      return { 
-        statusCode: 200, 
+      return {
+        statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true, item: inserted[0] }) 
+        body: JSON.stringify({ success: true, item: inserted[0] })
       };
     }
 
@@ -101,10 +102,10 @@ export const handler = async (event) => {
 
       const userRows = await sql`SELECT id FROM users WHERE email = ${email}`;
       if (userRows.length === 0) {
-        return { 
-          statusCode: 404, 
+        return {
+          statusCode: 404,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'User session invalid.' }) 
+          body: JSON.stringify({ error: 'User session invalid.' })
         };
       }
       const userId = userRows[0].id;
@@ -113,10 +114,10 @@ export const handler = async (event) => {
         SELECT id FROM item_claims WHERE item_id = ${itemId} AND claimant_id = ${userId}
       `;
       if (existingClaim.length > 0) {
-        return { 
-          statusCode: 400, 
+        return {
+          statusCode: 400,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'You have already submitted a claim for this item.' }) 
+          body: JSON.stringify({ error: 'You have already submitted a claim for this item.' })
         };
       }
 
@@ -134,10 +135,10 @@ export const handler = async (event) => {
         WHERE id = ${itemId} AND status = 'available'
       `;
 
-      return { 
-        statusCode: 200, 
+      return {
+        statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true, claim: claim[0] }) 
+        body: JSON.stringify({ success: true, claim: claim[0] })
       };
     }
 
@@ -153,10 +154,10 @@ export const handler = async (event) => {
       `;
 
       if (claimData.length === 0) {
-        return { 
-          statusCode: 404, 
+        return {
+          statusCode: 404,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Claim record not found.' }) 
+          body: JSON.stringify({ error: 'Claim record not found.' })
         };
       }
       const claim = claimData[0];
@@ -189,10 +190,10 @@ export const handler = async (event) => {
         )
       `;
 
-      return { 
-        statusCode: 200, 
+      return {
+        statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true }) 
+        body: JSON.stringify({ success: true })
       };
     }
 
@@ -203,24 +204,24 @@ export const handler = async (event) => {
         ORDER BY created_at DESC 
         LIMIT 20
       `;
-      return { 
-        statusCode: 200, 
+      return {
+        statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notifications }) 
+        body: JSON.stringify({ notifications })
       };
     }
 
-    return { 
-      statusCode: 400, 
+    return {
+      statusCode: 400,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Invalid action.' }) 
+      body: JSON.stringify({ error: 'Invalid action.' })
     };
   } catch (error) {
     console.error('ITEMS_API_ERROR:', error);
-    return { 
-      statusCode: 500, 
+    return {
+      statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: error.message }) 
+      body: JSON.stringify({ error: error.message })
     };
   }
 };
