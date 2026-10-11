@@ -29,7 +29,16 @@ exports.handler = async (event) => {
     };
   }
 
-  const sql = neon(dbUrl);
+  let sql;
+  try {
+    sql = neon(dbUrl);
+  } catch (err) {
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ error: 'Database init error: ' + err.message, items: [], notifications: [] })
+    };
+  }
 
   try {
     const body = event.body ? JSON.parse(event.body) : {};
@@ -113,7 +122,7 @@ exports.handler = async (event) => {
       }
     }
 
-    // 3. REPORT ITEM (Student reports lost asset -> Broadcast & Admin notification)
+    // 3. REPORT ITEM
     if (action === 'report-item') {
       const { email, title, category, location, lostDate, lostTime, description, itemPic } = payload;
       const trackingId = `LOST-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -132,16 +141,17 @@ exports.handler = async (event) => {
         ) RETURNING *
       `;
 
-      // 🔔 Broadcast Alert
-      await sql`
-        INSERT INTO notifications (role, title, message, broadcast)
-        VALUES (
-          'all',
-          ${'⚠️ Asset Alert: ' + (title || 'New Item')},
-          ${'Reported lost at ' + (location || 'Campus') + ' (ID: ' + trackingId + ')'},
-          TRUE
-        )
-      `;
+      try {
+        await sql`
+          INSERT INTO notifications (role, title, message, broadcast)
+          VALUES (
+            'all',
+            ${'⚠️ Asset Alert: ' + (title || 'New Item')},
+            ${'Reported lost at ' + (location || 'Campus') + ' (ID: ' + trackingId + ')'},
+            TRUE
+          )
+        `;
+      } catch (e) {}
 
       return {
         statusCode: 200,
@@ -150,7 +160,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // 4. CLAIM ITEM (Student files claim -> Trigger claim notification for admin)
+    // 4. CLAIM ITEM
     if (action === 'claim-item') {
       const { email, itemId, trackingId, proofPic, uniqueIdentifier, claimDescription } = payload;
 
@@ -185,19 +195,19 @@ exports.handler = async (event) => {
         WHERE id = ${itemId} AND status = 'available'
       `;
 
-      // 🔔 Notification for Admin about the incoming claim
-      const itemRow = await sql`SELECT title FROM lost_items WHERE id = ${itemId}`;
-      const itemTitle = itemRow[0]?.title || trackingId;
-
-      await sql`
-        INSERT INTO notifications (role, title, message, broadcast)
-        VALUES (
-          'admin',
-          ${'📩 New Claim Filed: ' + itemTitle},
-          ${'Claim submitted by ' + email + ' for review.'},
-          TRUE
-        )
-      `;
+      try {
+        const itemRow = await sql`SELECT title FROM lost_items WHERE id = ${itemId}`;
+        const itemTitle = itemRow[0]?.title || trackingId;
+        await sql`
+          INSERT INTO notifications (role, title, message, broadcast)
+          VALUES (
+            'admin',
+            ${'📩 New Claim Filed: ' + itemTitle},
+            ${'Claim submitted by ' + email + ' for review.'},
+            TRUE
+          )
+        `;
+      } catch (e) {}
 
       return {
         statusCode: 200,
@@ -206,7 +216,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // 5. FETCH CLAIMS FOR AN ITEM (For Admin YouTube Theater View)
+    // 5. FETCH CLAIMS (Theater View)
     if (action === 'get-item-claims') {
       const { itemId } = payload;
       const claims = await sql`
@@ -223,11 +233,11 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ claims })
+        body: JSON.stringify({ claims: claims || [] })
       };
     }
 
-   // 6. ADMIN APPROVE OR REJECT SPECIFIC CLAIM
+    // 6. ADMIN APPROVE OR REJECT
     if (action === 'admin-process-claim') {
       const { claimId, itemId, decision } = payload;
 
@@ -247,13 +257,9 @@ exports.handler = async (event) => {
         const itemData = await sql`SELECT title, tracking_id FROM lost_items WHERE id = ${itemId}`;
         const itemTitle = itemData[0]?.title || 'Misplaced Asset';
 
-        // 1. Finder's claim approve
         await sql`UPDATE item_claims SET status = 'approved' WHERE id = ${claimId}`;
-        
-        // 2. Reject others
         await sql`UPDATE item_claims SET status = 'rejected' WHERE item_id = ${itemId} AND id != ${claimId}`;
 
-        // 3. Mark lost item as RECOVERED / FOUND
         await sql`
           UPDATE lost_items 
           SET 
@@ -266,16 +272,17 @@ exports.handler = async (event) => {
           WHERE id = ${itemId}
         `;
 
-        // 🔔 4. Sahi Broadcast: "Found & Recovered By [Student]" (Handed over by student)
-        await sql`
-          INSERT INTO notifications (role, title, message, broadcast)
-          VALUES (
-            'all',
-            ${'✅ Asset Recovered: ' + itemTitle},
-            ${'Successfully found and handed in by ' + (claim.full_name || 'Student') + ' (Enr: ' + (claim.enrollment_no || 'Verified') + ')'},
-            TRUE
-          )
-        `;
+        try {
+          await sql`
+            INSERT INTO notifications (role, title, message, broadcast)
+            VALUES (
+              'all',
+              ${'✅ Asset Recovered: ' + itemTitle},
+              ${'Found and handed in by ' + (claim.full_name || 'Student') + ' (Enr: ' + (claim.enrollment_no || 'Verified') + ')'},
+              TRUE
+            )
+          `;
+        } catch (e) {}
 
         return { 
           statusCode: 200, 
@@ -288,7 +295,7 @@ exports.handler = async (event) => {
       }
     }
 
-    // 7. SIMPLE DIRECT USER INSERT (Email, Password, Role)
+    // 7. SIMPLE DIRECT USER INSERT (Email, Password, Role only - Zero OTP)
     if (action === 'admin-create-user') {
       const { email, password, role } = payload;
 
@@ -296,7 +303,7 @@ exports.handler = async (event) => {
         return {
           statusCode: 400,
           headers,
-          body: JSON.stringify({ error: 'Email aur Password dono required hain.' })
+          body: JSON.stringify({ error: 'Email aur Password required hain.' })
         };
       }
 
@@ -304,7 +311,6 @@ exports.handler = async (event) => {
       const userRole = role === 'admin' ? 'admin' : 'student';
 
       try {
-        // Check existing user
         const existing = await sql`SELECT id FROM users WHERE email = ${cleanEmail} LIMIT 1`;
         if (existing && existing.length > 0) {
           return {
@@ -314,20 +320,10 @@ exports.handler = async (event) => {
           };
         }
 
-        // Direct Insert into `users` table
-        // (Agar aapke login mein password hashed check hota hai, bcrypt use karein; agar plain/direct hai toh direct)
-        let hashedPassword = password;
-        try {
-          const bcrypt = require('bcryptjs');
-          hashedPassword = await bcrypt.hash(password, 10);
-        } catch (e) {
-          // Fallback agar bcryptjs na ho
-          hashedPassword = password;
-        }
-
+        // Direct user insert into users table (No dummy profiles, No constraint breaks)
         const inserted = await sql`
           INSERT INTO users (email, password, role)
-          VALUES (${cleanEmail}, ${hashedPassword}, ${userRole})
+          VALUES (${cleanEmail}, ${password}, ${userRole})
           RETURNING id, email, role
         `;
 
@@ -350,3 +346,15 @@ exports.handler = async (event) => {
         };
       }
     }
+
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Unknown action specified' }) };
+
+  } catch (globalErr) {
+    console.error('CRITICAL HANDLER ERROR:', globalErr.message);
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ items: [], notifications: [], warning: globalErr.message })
+    };
+  }
+};
