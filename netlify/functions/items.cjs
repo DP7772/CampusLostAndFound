@@ -1,6 +1,7 @@
 const { neon } = require('@neondatabase/serverless');
 
 exports.handler = async (event) => {
+  // CORS & Methods check
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -14,27 +15,74 @@ exports.handler = async (event) => {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Database configuration missing.' })
+      body: JSON.stringify({ error: 'Database connection string missing in Netlify environment.' })
     };
   }
+
   const sql = neon(dbUrl);
 
   try {
     const { action, payload } = JSON.parse(event.body || '{}');
 
-    // 1. Report Lost Item + Create Global Notification
-    if (action === 'report-item') {
-      const { email, title, category, location, lostDate, lostTime, description, itemPic } = payload;
-      
-      const userRows = await sql`SELECT id FROM users WHERE email = ${email}`;
-      if (userRows.length === 0) {
-        return {
-          statusCode: 404,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'User not found.' })
-        };
+    // 1. GET FEED (Purani aur nayi saari items fetch karega safely)
+    if (action === 'get-feed') {
+      const userEmail = payload && payload.userEmail ? payload.userEmail : null;
+
+      // Safe fetch: Sare items seedha lost_items table se fetch karo
+      const items = await sql`
+        SELECT * FROM lost_items 
+        ORDER BY created_at DESC
+      `;
+
+      // Agar user logged in hai, unke claims alag se check karo (Fail-safe, no crash join)
+      let claimedItemIds = new Set();
+      let claimStatusMap = {};
+
+      if (userEmail) {
+        try {
+          const claims = await sql`
+            SELECT item_id, status FROM item_claims 
+            WHERE claimant_email = ${userEmail}
+          `;
+          claims.forEach((c) => {
+            claimedItemIds.add(c.item_id);
+            claimStatusMap[c.item_id] = c.status;
+          });
+        } catch (e) {
+          console.warn('Claims table check skipped:', e.message);
+        }
       }
-      const userId = userRows[0].id;
+
+      // Attach claim flags
+      const formattedItems = items.map((item) => ({
+        ...item,
+        has_user_claimed: claimedItemIds.has(item.id),
+        user_claim_status: claimStatusMap[item.id] || null
+      }));
+
+      // Extract unique categories & locations dynamically
+      const categories = [...new Set(items.map((i) => i.category).filter(Boolean))];
+      const locations = [...new Set(items.map((i) => i.location).filter(Boolean))];
+
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: formattedItems, categories, locations })
+      };
+    }
+
+    // 2. REPORT ITEM (New post)
+    if (action === 'report-item') {
+      const { email, title, category, location, lostDate, lostTime, description, itemPic } = payload || {};
+      
+      let userId = null;
+      try {
+        const u = await sql`SELECT id FROM users WHERE email = ${email}`;
+        if (u.length > 0) userId = u[0].id;
+      } catch (err) {
+        console.warn('User lookup fallback:', err.message);
+      }
+
       const trackingId = `LOST-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
 
       const inserted = await sql`
@@ -45,16 +93,20 @@ exports.handler = async (event) => {
         ) RETURNING *
       `;
 
-      // 🔔 Global Notification
-      await sql`
-        INSERT INTO notifications (role, title, message, broadcast)
-        VALUES (
-          'all',
-          ${`⚠️ Misplaced Asset: ${title}`},
-          ${`Asset "${title}" was reported lost at ${location}. Tracking ID: ${trackingId}.`},
-          TRUE
-        )
-      `;
+      // Safe notification broadcast
+      try {
+        await sql`
+          INSERT INTO notifications (role, title, message, broadcast)
+          VALUES (
+            'all',
+            ${`⚠️ Misplaced Asset: ${title}`},
+            ${`Asset "${title}" was reported lost at ${location}. Tracking ID: ${trackingId}.`},
+            TRUE
+          )
+        `;
+      } catch (e) {
+        console.warn('Notification log skipped:', e.message);
+      }
 
       return {
         statusCode: 200,
@@ -63,57 +115,21 @@ exports.handler = async (event) => {
       };
     }
 
-    // 2. Fetch All Items Feed
-    if (action === 'get-feed') {
-      const { userEmail } = payload || {};
+    // 3. CLAIM ITEM
+    if (action === 'claim-item') {
+      const { email, itemId, trackingId, proofPic, uniqueIdentifier, claimDescription } = payload || {};
 
       let userId = null;
-      if (userEmail) {
-        const userRows = await sql`SELECT id FROM users WHERE email = ${userEmail}`;
-        if (userRows.length > 0) userId = userRows[0].id;
-      }
+      try {
+        const u = await sql`SELECT id FROM users WHERE email = ${email}`;
+        if (u.length > 0) userId = u[0].id;
+      } catch (err) {}
 
-      const items = await sql`
-        SELECT 
-          l.*,
-          CASE 
-            WHEN c.id IS NOT NULL THEN true 
-            ELSE false 
-          END AS has_user_claimed,
-          c.status AS user_claim_status
-        FROM lost_items l
-        LEFT JOIN item_claims c ON l.id = c.item_id AND c.claimant_id = ${userId}
-        ORDER BY l.created_at DESC
+      // Prevent duplicate claims
+      const existing = await sql`
+        SELECT id FROM item_claims WHERE item_id = ${itemId} AND claimant_email = ${email}
       `;
-
-      const categories = [...new Set(items.map((i) => i.category))];
-      const locations = [...new Set(items.map((i) => i.location))];
-
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, categories, locations })
-      };
-    }
-
-    // 3. Submit Claim on an Item
-    if (action === 'claim-item') {
-      const { email, itemId, trackingId, proofPic, uniqueIdentifier, claimDescription } = payload;
-
-      const userRows = await sql`SELECT id FROM users WHERE email = ${email}`;
-      if (userRows.length === 0) {
-        return {
-          statusCode: 404,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'User session invalid.' })
-        };
-      }
-      const userId = userRows[0].id;
-
-      const existingClaim = await sql`
-        SELECT id FROM item_claims WHERE item_id = ${itemId} AND claimant_id = ${userId}
-      `;
-      if (existingClaim.length > 0) {
+      if (existing.length > 0) {
         return {
           statusCode: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -142,73 +158,26 @@ exports.handler = async (event) => {
       };
     }
 
-    // 4. Admin Approves a Claim
-    if (action === 'admin-approve-claim') {
-      const { claimId, itemId } = payload;
-
-      const claimData = await sql`
-        SELECT c.*, sp.full_name, sp.enrollment_no 
-        FROM item_claims c
-        LEFT JOIN student_profiles sp ON c.claimant_email = sp.email
-        WHERE c.id = ${claimId}
-      `;
-
-      if (claimData.length === 0) {
+    // 4. NOTIFICATIONS
+    if (action === 'get-notifications') {
+      try {
+        const notifications = await sql`
+          SELECT * FROM notifications 
+          ORDER BY created_at DESC 
+          LIMIT 20
+        `;
         return {
-          statusCode: 404,
+          statusCode: 200,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'Claim record not found.' })
+          body: JSON.stringify({ notifications })
+        };
+      } catch (e) {
+        return {
+          statusCode: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notifications: [] })
         };
       }
-      const claim = claimData[0];
-
-      const itemData = await sql`SELECT title, tracking_id FROM lost_items WHERE id = ${itemId}`;
-      const itemTitle = itemData[0]?.title || 'Misplaced Asset';
-
-      await sql`UPDATE item_claims SET status = 'approved' WHERE id = ${claimId}`;
-      await sql`UPDATE item_claims SET status = 'rejected' WHERE item_id = ${itemId} AND id != ${claimId}`;
-
-      await sql`
-        UPDATE lost_items 
-        SET 
-          status = 'resolved',
-          approved_claimant_id = ${claim.claimant_id},
-          approved_claimant_name = ${claim.full_name || 'Verified Student'},
-          approved_claimant_enrollment = ${claim.enrollment_no || 'N/A'},
-          approved_claimant_proof = ${claim.proof_pic},
-          resolved_at = CURRENT_TIMESTAMP
-        WHERE id = ${itemId}
-      `;
-
-      await sql`
-        INSERT INTO notifications (role, title, message, broadcast)
-        VALUES (
-          'all',
-          ${`🎉 Asset Recovered: ${itemTitle}`},
-          ${`Asset "${itemTitle}" (${itemData[0]?.tracking_id}) has been verified & returned to ${claim.full_name \vert{}\vert{} 'Claimant'} (Enr:${claim.enrollment_no || 'N/A'}).`},
-          TRUE
-        )
-      `;
-
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true })
-      };
-    }
-
-    // 5. Fetch Live Notification Feed
-    if (action === 'get-notifications') {
-      const notifications = await sql`
-        SELECT * FROM notifications 
-        ORDER BY created_at DESC 
-        LIMIT 20
-      `;
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notifications })
-      };
     }
 
     return {
@@ -216,12 +185,13 @@ exports.handler = async (event) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Invalid action.' })
     };
+
   } catch (error) {
-    console.error('ITEMS_API_ERROR:', error);
+    console.error('API_CRASH_LOG:', error);
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({ error: `Backend operation failed: ${error.message}` })
     };
   }
 };
