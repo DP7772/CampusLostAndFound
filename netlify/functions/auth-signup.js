@@ -8,10 +8,9 @@ export const handler = async (event) => {
   }
 
   try {
-    // 1. Safe Environment Check inside handler
     const dbUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED || process.env.NETLIFY_DATABASE_URL;
     if (!dbUrl) {
-      return { statusCode: 500, body: JSON.stringify({ error: 'Database URL environment variable is missing on Netlify!' }) };
+      return { statusCode: 500, body: JSON.stringify({ error: 'Database configuration missing.' }) };
     }
 
     const sql = neon(dbUrl);
@@ -26,7 +25,7 @@ export const handler = async (event) => {
 
       const existingUser = await sql`SELECT id FROM users WHERE email = ${email}`;
       if (existingUser.length > 0) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Email already registered.' }) };
+        return { statusCode: 400, body: JSON.stringify({ error: 'Email already registered. Please login.' }) };
       }
 
       const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -40,7 +39,7 @@ export const handler = async (event) => {
       `;
 
       if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        return { statusCode: 500, body: JSON.stringify({ error: 'Email credentials missing on Netlify!' }) };
+        return { statusCode: 500, body: JSON.stringify({ error: 'Email service credentials missing.' }) };
       }
 
       const transporter = nodemailer.createTransport({
@@ -48,11 +47,42 @@ export const handler = async (event) => {
         auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
       });
 
+      // Professional Branded Email Template
       await transporter.sendMail({
-        from: `"Campus L&F" <${process.env.EMAIL_USER}>`,
+        from: `"Campus Lost & Found Portal" <${process.env.EMAIL_USER}>`,
         to: email,
-        subject: '🔒 Your Verification OTP',
-        html: `<h3>Your OTP is: <b>${generatedOtp}</b></h3><p>Valid for 5 minutes.</p>`
+        subject: '🔐 Verification Code - Campus Lost & Found Platform',
+        html: `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #050505; color: #ffffff; padding: 40px; border-radius: 16px;">
+            <div style="max-width: 500px; margin: auto; background: #0f1015; padding: 35px; border-radius: 20px; border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+              
+              <div style="text-align: center; margin-bottom: 25px;">
+                <span style="background: linear-gradient(135deg, #2563eb, #4f46e5); color: white; padding: 10px 18px; border-radius: 12px; font-weight: bold; font-size: 16px; letter-spacing: 0.5px;">Campus L&F</span>
+              </div>
+              
+              <h2 style="color: #ffffff; text-align: center; margin-bottom: 6px; font-size: 22px;">Security Verification</h2>
+              <p style="color: #94a3b8; font-size: 13px; text-align: center; margin-top: 0;">Official Campus Lost & Found Ecosystem</p>
+              
+              <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 20px 0;" />
+              
+              <p style="font-size: 14px; color: #cbd5e1; line-height: 1.5;">Hello,</p>
+              <p style="font-size: 14px; color: #cbd5e1; line-height: 1.5;">You are registering your student account on the official <b>Campus Lost & Found Portal</b>. Use the secure one-time passcode below to verify your email address:</p>
+              
+              <div style="background: #000000; padding: 22px; text-align: center; border-radius: 14px; margin: 25px 0; border: 1px solid rgba(59, 130, 246, 0.4); box-shadow: inset 0 0 15px rgba(59, 130, 246, 0.1);">
+                <span style="font-size: 34px; font-weight: 900; letter-spacing: 10px; color: #60a5fa;">${generatedOtp}</span>
+              </div>
+              
+              <p style="font-size: 12px; color: #f87171; text-align: center; font-weight: 600;">⚠️ This verification code is valid for 5 minutes only.</p>
+              
+              <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 25px 0;" />
+              
+              <p style="font-size: 11px; color: #64748b; text-align: center; line-height: 1.4;">
+                This is an automated message sent securely by the <b>Campus L&F Authority Desk</b>.<br/>
+                If you did not request this verification, please ignore this email.
+              </p>
+            </div>
+          </div>
+        `
       });
 
       return { statusCode: 200, body: JSON.stringify({ success: true, message: 'OTP sent' }) };
@@ -68,11 +98,11 @@ export const handler = async (event) => {
       const record = records[0];
       if (new Date() > new Date(record.expires_at)) {
         await sql`DELETE FROM otps WHERE email = ${email}`;
-        return { statusCode: 400, body: JSON.stringify({ error: 'OTP expired.' }) };
+        return { statusCode: 400, body: JSON.stringify({ error: 'OTP expired. Please request a new one.' }) };
       }
 
       if (record.otp_code !== otp) {
-        return { statusCode: 400, body: JSON.stringify({ error: 'Invalid OTP.' }) };
+        return { statusCode: 400, body: JSON.stringify({ error: 'Invalid OTP code.' }) };
       }
 
       return { statusCode: 200, body: JSON.stringify({ success: true }) };
@@ -98,10 +128,6 @@ export const handler = async (event) => {
 
   } catch (error) {
     console.error("SIGNUP ERROR:", error.message);
-    // Ab 502 ke bajaye exact error frontend par JSON mein jayega
-    return { 
-      statusCode: 500, 
-      body: JSON.stringify({ error: `Server Error: ${error.message}` }) 
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: `Server Error: ${error.message}` }) };
   }
 };
