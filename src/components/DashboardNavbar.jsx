@@ -1,34 +1,68 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export default function DashboardNavbar({ profile, role, notifications = [] }) {
+export default function DashboardNavbar({ profile, role }) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(notifications.length || 1);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const prevCountRef = useRef(0);
 
   const profileRef = useRef(null);
   const notifRef = useRef(null);
   const navigate = useNavigate();
 
-  // Synthetic Audio Chime for Notifications
+  // 🔔 Crisp Sci-Fi Chime Sound Generator (Native Web Audio API)
   const playChime = () => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
+
       osc.type = 'sine';
       osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
-      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.15); // A5
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+      osc.frequency.exponentialRampToValueAtTime(880.00, audioCtx.currentTime + 0.12); // A5
+
+      gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+
       osc.connect(gain);
       gain.connect(audioCtx.destination);
+
       osc.start();
-      osc.stop(audioCtx.currentTime + 0.3);
-    } catch {
-      // Audio fallback
+      osc.stop(audioCtx.currentTime + 0.35);
+    } catch (e) {
+      console.log('Audio autoplay constraint:', e);
     }
   };
+
+  // Poll for notifications
+  const loadNotifications = () => {
+    fetch('/api/items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get-notifications' })
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        const list = data.notifications || [];
+        if (list.length > prevCountRef.current && prevCountRef.current !== 0) {
+          playChime();
+          setUnreadCount((c) => c + (list.length - prevCountRef.current));
+        } else if (prevCountRef.current === 0 && list.length > 0) {
+          setUnreadCount(list.length);
+        }
+        prevCountRef.current = list.length;
+        setNotifications(list);
+      })
+      .catch((err) => console.error(err));
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 8000); // Poll every 8s
+    return () => clearInterval(interval);
+  }, []);
 
   // Close menus on outside click
   useEffect(() => {
@@ -67,51 +101,65 @@ export default function DashboardNavbar({ profile, role, notifications = [] }) {
         {/* Right Action Controls */}
         <div className="flex items-center gap-5">
           
-          {/* Notification Bell */}
+          {/* 🔔 Notification Bell with Red Glow */}
           <div className="relative" ref={notifRef}>
             <button
               onClick={() => {
-                if (!showNotifMenu) playChime();
                 setShowNotifMenu(!showNotifMenu);
                 setShowProfileMenu(false);
                 setUnreadCount(0);
               }}
-              className="relative p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-slate-300 hover:text-white transition-all"
+              className={`relative p-2.5 rounded-xl border transition-all ${
+                unreadCount > 0 
+                  ? 'bg-red-500/20 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse' 
+                  : 'bg-white/5 hover:bg-white/10 border-white/5 text-slate-300 hover:text-white'
+              }`}
             >
               🔔
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-lg">
                   {unreadCount}
                 </span>
               )}
             </button>
 
-            {/* Notification Dropdown Drawer */}
+            {/* Notification Drawer (Chronological: Newest on Top) */}
             {showNotifMenu && (
-              <div className="absolute right-0 mt-3 w-80 bg-[#0e0f17] border border-white/10 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in duration-200">
+              <div className="absolute right-0 mt-3 w-84 md:w-96 bg-[#0e0f17] border border-white/10 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in duration-200">
                 <div className="flex justify-between items-center pb-3 border-b border-white/5">
-                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Alert Center</h4>
-                  <span className="text-[10px] text-blue-400 font-mono">Real-time Feed</span>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Campus Broadcast Feed</h4>
+                  <span className="text-[10px] text-blue-400 font-mono">Live Sync</span>
                 </div>
-                <div className="mt-3 space-y-3 max-h-64 overflow-y-auto pr-1">
-                  <div className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs">
-                    <p className="font-semibold text-white">System Synchronized</p>
-                    <p className="text-slate-400 text-[11px] mt-0.5">Your profile was verified and bound to NeonDB.</p>
-                    <span className="text-[9px] text-slate-500 mt-1 block">Just now</span>
-                  </div>
-                  {notifications.map((n, i) => (
-                    <div key={i} className="p-2.5 rounded-xl bg-white/5 border border-white/5 text-xs">
-                      <p className="font-semibold text-white">{n.title}</p>
-                      <p className="text-slate-400 text-[11px] mt-0.5">{n.message}</p>
-                      <span className="text-[9px] text-slate-500 mt-1 block">Recent</span>
-                    </div>
-                  ))}
+                
+                <div className="mt-3 space-y-3 max-h-80 overflow-y-auto pr-1">
+                  {notifications.length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-4">No active broadcasts yet.</p>
+                  ) : (
+                    notifications.map((n, i) => (
+                      <div 
+                        key={i} 
+                        className={`p-3 rounded-xl border text-xs transition-all ${
+                          n.title.includes('Recovered') 
+                            ? 'bg-purple-950/20 border-purple-500/30' 
+                            : 'bg-blue-950/20 border-blue-500/20'
+                        }`}
+                      >
+                        <p className="font-bold text-white flex items-center justify-between">
+                          <span>{n.title}</span>
+                        </p>
+                        <p className="text-slate-300 text-[11px] mt-1 leading-relaxed">{n.message}</p>
+                        <span className="text-[9px] text-slate-500 font-mono mt-2 block">
+                          {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {/* User Profile Avatar & Dropdown */}
+          {/* User Profile Avatar & Mini-Card Dropdown */}
           <div className="relative" ref={profileRef}>
             <button 
               onClick={() => {
@@ -127,7 +175,6 @@ export default function DashboardNavbar({ profile, role, notifications = [] }) {
               />
             </button>
 
-            {/* Modern Profile Dropdown Card */}
             {showProfileMenu && (
               <div className="absolute right-0 mt-3 w-72 bg-[#0d0e15] border border-white/10 rounded-3xl shadow-2xl p-5 z-50 animate-in fade-in duration-200">
                 <div className="flex items-center gap-3 pb-4 border-b border-white/10">
