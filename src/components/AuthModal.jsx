@@ -9,7 +9,7 @@ export default function AuthModal({ isOpen, type, onClose }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
-  const [isCompleted, setIsCompleted] = useState(false); // Green checkmark success state
+  const [isCompleted, setIsCompleted] = useState(false);
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!\%*?&]{8,}$/;
@@ -28,6 +28,7 @@ export default function AuthModal({ isOpen, type, onClose }) {
 
   if (!isOpen) return null;
 
+  // Safe response parser to avoid unexpected JSON crashes
   const parseResponse = async (res) => {
     const text = await res.text();
     let data;
@@ -42,10 +43,11 @@ export default function AuthModal({ isOpen, type, onClose }) {
     return data;
   };
 
+  // --- Step 1: Send OTP to Email ---
   const handleSendOTP = async (e) => {
     e.preventDefault();
     if (!emailRegex.test(email)) {
-      setError('Please enter a valid email address.');
+      setError('Please enter a valid college email address.');
       return;
     }
     setError('');
@@ -68,10 +70,11 @@ export default function AuthModal({ isOpen, type, onClose }) {
     }
   };
 
+  // --- Step 2: Verify 6-digit OTP ---
   const handleVerifyOTP = async (e) => {
     e.preventDefault();
     if (otp.length < 6) {
-      setError('Please enter the 6-digit OTP.');
+      setError('Please enter the complete 6-digit OTP.');
       return;
     }
     setError('');
@@ -94,6 +97,7 @@ export default function AuthModal({ isOpen, type, onClose }) {
     }
   };
 
+  // --- Step 3: Complete Signup & Hash Password in NeonDB ---
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
     if (!passwordRegex.test(password)) {
@@ -111,11 +115,10 @@ export default function AuthModal({ isOpen, type, onClose }) {
       });
       await parseResponse(res);
 
-      // Show gorgeous green success state
       setIsCompleted(true);
       setTimeout(() => {
         onClose();
-      }, 2500); // Auto close after 2.5 seconds to let them login
+      }, 2500);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -123,10 +126,11 @@ export default function AuthModal({ isOpen, type, onClose }) {
     }
   };
 
+  // --- Login Handler (Student & Admin Separation) ---
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     if (!emailRegex.test(email) || !password) {
-      setError('Please fill in all required fields.');
+      setError('Please fill in all required credentials.');
       return;
     }
     setError('');
@@ -147,7 +151,12 @@ export default function AuthModal({ isOpen, type, onClose }) {
       setSuccessMsg(`Welcome back, ${data.user.name}! Redirecting...`);
       setTimeout(() => {
         onClose();
-      }, 1500);
+        if (data.user.role === 'admin') {
+          window.location.href = '/admin-dashboard';
+        } else {
+          window.location.href = '/student-dashboard';
+        }
+      }, 1200);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -157,10 +166,13 @@ export default function AuthModal({ isOpen, type, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+      {/* Background click to dismiss */}
       <div className="absolute inset-0" onClick={onClose}></div>
 
+      {/* Glassmorphism Card */}
       <div className="relative w-full max-w-md bg-[#0a0a0f] border border-white/10 rounded-3xl shadow-2xl p-8 z-10">
         
+        {/* Animated Rotating Cross Button */}
         <button 
           onClick={onClose}
           className="absolute top-5 right-5 text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full p-2 transition-all duration-300 hover:rotate-90"
@@ -170,7 +182,7 @@ export default function AuthModal({ isOpen, type, onClose }) {
           </svg>
         </button>
 
-        {/* 🌟 SUCCESS GREEN TICK SCREEN */}
+        {/* Success Screen */}
         {isCompleted ? (
           <div className="text-center py-8 space-y-4">
             <div className="w-20 h-20 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-full flex items-center justify-center text-4xl mx-auto animate-bounce shadow-[0_0_30px_rgba(16,185,129,0.3)]">
@@ -200,6 +212,7 @@ export default function AuthModal({ isOpen, type, onClose }) {
             )}
 
             <div>
+              {/* Signup Flow */}
               {type === 'student-signup' && (
                 <>
                   {step === 1 && (
@@ -263,6 +276,7 @@ export default function AuthModal({ isOpen, type, onClose }) {
                 </>
               )}
 
+              {/* Login Flow */}
               {(type === 'student-login' || type === 'admin-login') && (
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
