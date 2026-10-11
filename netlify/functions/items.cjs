@@ -13,14 +13,9 @@ exports.handler = async (event) => {
   }
 
   if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method Not Allowed' })
-    };
+    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
-  // Neon connection fallback check
   const dbUrl = 
     process.env.NETLIFY_DATABASE_URL_UNPOOLED || 
     process.env.NETLIFY_DATABASE_URL || 
@@ -34,24 +29,14 @@ exports.handler = async (event) => {
     };
   }
 
-  let sql;
-  try {
-    sql = neon(dbUrl);
-  } catch (err) {
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ error: `DB Driver initialization failed: ${err.message}`, items: [], notifications: [] })
-    };
-  }
+  const sql = neon(dbUrl);
 
   try {
     const body = event.body ? JSON.parse(event.body) : {};
     const action = body.action || '';
     const payload = body.payload || {};
 
-    // 1. GET NOTIFICATIONS (Guaranteed fetch with safe date serialization)
-   // 🔔 1. GET NOTIFICATIONS (Converted to IST +05:30)
+    // 1. GET NOTIFICATIONS (IST +05:30)
     if (action === 'get-notifications') {
       try {
         const notifications = await sql`
@@ -64,7 +49,7 @@ exports.handler = async (event) => {
             to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata', 'HH12:MI AM, DD Mon') AS created_at
           FROM notifications 
           ORDER BY id DESC 
-          LIMIT 25
+          LIMIT 30
         `;
         return {
           statusCode: 200,
@@ -79,7 +64,8 @@ exports.handler = async (event) => {
         };
       }
     }
-    // 2. GET FEED
+
+    // 2. GET FEED ITEMS
     if (action === 'get-feed') {
       try {
         const items = await sql`
@@ -101,9 +87,7 @@ exports.handler = async (event) => {
               claimedItemIds.add(c.item_id);
               claimStatusMap[c.item_id] = c.status;
             });
-          } catch (e) {
-            console.warn('Claims check warning:', e.message);
-          }
+          } catch (e) {}
         }
 
         const formattedItems = (items || []).map((item) => ({
@@ -121,7 +105,6 @@ exports.handler = async (event) => {
           body: JSON.stringify({ items: formattedItems, categories, locations })
         };
       } catch (feedErr) {
-        console.error('get-feed SQL failed:', feedErr.message);
         return {
           statusCode: 200,
           headers,
@@ -130,7 +113,7 @@ exports.handler = async (event) => {
       }
     }
 
-    // 3. REPORT ITEM + NOTIFY BROADCAST
+    // 3. REPORT ITEM (Student reports lost asset -> Broadcast & Admin notification)
     if (action === 'report-item') {
       const { email, title, category, location, lostDate, lostTime, description, itemPic } = payload;
       const trackingId = `LOST-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -149,19 +132,16 @@ exports.handler = async (event) => {
         ) RETURNING *
       `;
 
-      try {
-        await sql`
-          INSERT INTO notifications (role, title, message, broadcast)
-          VALUES (
-            'all',
-            ${'⚠️ Asset Alert: ' + (title || 'New Item')},
-            ${'Reported at ' + (location || 'Campus') + ' (ID: ' + trackingId + ')'},
-            TRUE
-          )
-        `;
-      } catch (e) {
-        console.error('Notification log failed:', e.message);
-      }
+      // 🔔 Broadcast Alert
+      await sql`
+        INSERT INTO notifications (role, title, message, broadcast)
+        VALUES (
+          'all',
+          ${'⚠️ Asset Alert: ' + (title || 'New Item')},
+          ${'Reported lost at ' + (location || 'Campus') + ' (ID: ' + trackingId + ')'},
+          TRUE
+        )
+      `;
 
       return {
         statusCode: 200,
@@ -170,7 +150,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // 4. CLAIM ITEM
+    // 4. CLAIM ITEM (Student files claim -> Trigger claim notification for admin)
     if (action === 'claim-item') {
       const { email, itemId, trackingId, proofPic, uniqueIdentifier, claimDescription } = payload;
 
@@ -180,65 +160,99 @@ exports.handler = async (event) => {
         if (u && u.length > 0) userId = u[0].id;
       } catch (err) {}
 
-      try {
-        const existing = await sql`
-          SELECT id FROM item_claims WHERE item_id = ${itemId} AND claimant_email = ${email}
-        `;
-        if (existing && existing.length > 0) {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'You have already submitted a claim for this item.' })
-          };
-        }
-
-        const claim = await sql`
-          INSERT INTO item_claims (
-            item_id, tracking_id, claimant_id, claimant_email, proof_pic, unique_identifier, claim_description, status
-          ) VALUES (
-            ${itemId}, ${trackingId}, ${userId}, ${email}, ${proofPic || ''}, ${uniqueIdentifier || ''}, ${claimDescription || ''}, 'pending'
-          ) RETURNING *
-        `;
-
-        await sql`
-          UPDATE lost_items 
-          SET status = 'claim_pending' 
-          WHERE id = ${itemId} AND status = 'available'
-        `;
-
+      const existing = await sql`
+        SELECT id FROM item_claims WHERE item_id = ${itemId} AND claimant_email = ${email}
+      `;
+      if (existing && existing.length > 0) {
         return {
-          statusCode: 200,
+          statusCode: 400,
           headers,
-          body: JSON.stringify({ success: true, claim: claim[0] })
-        };
-      } catch (claimErr) {
-        return {
-          statusCode: 500,
-          headers,
-          body: JSON.stringify({ error: claimErr.message })
+          body: JSON.stringify({ error: 'You have already submitted a claim for this item.' })
         };
       }
+
+      const claim = await sql`
+        INSERT INTO item_claims (
+          item_id, tracking_id, claimant_id, claimant_email, proof_pic, unique_identifier, claim_description, status
+        ) VALUES (
+          ${itemId}, ${trackingId}, ${userId}, ${email}, ${proofPic || ''}, ${uniqueIdentifier || ''}, ${claimDescription || ''}, 'pending'
+        ) RETURNING *
+      `;
+
+      await sql`
+        UPDATE lost_items 
+        SET status = 'claim_pending' 
+        WHERE id = ${itemId} AND status = 'available'
+      `;
+
+      // 🔔 Notification for Admin about the incoming claim
+      const itemRow = await sql`SELECT title FROM lost_items WHERE id = ${itemId}`;
+      const itemTitle = itemRow[0]?.title || trackingId;
+
+      await sql`
+        INSERT INTO notifications (role, title, message, broadcast)
+        VALUES (
+          'admin',
+          ${'📩 New Claim Filed: ' + itemTitle},
+          ${'Claim submitted by ' + email + ' for review.'},
+          TRUE
+        )
+      `;
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, claim: claim[0] })
+      };
     }
 
-    // 5. ADMIN APPROVE CLAIM
-    if (action === 'admin-approve-claim') {
-      const { claimId, itemId } = payload;
+    // 5. FETCH CLAIMS FOR AN ITEM (For Admin YouTube Theater View)
+    if (action === 'get-item-claims') {
+      const { itemId } = payload;
+      const claims = await sql`
+        SELECT 
+          c.*, 
+          COALESCE(sp.full_name, 'Student') AS full_name,
+          COALESCE(sp.enrollment_no, 'Not Set') AS enrollment_no,
+          to_char(c.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata', 'HH12:MI AM, DD Mon') AS submitted_time
+        FROM item_claims c
+        LEFT JOIN student_profiles sp ON c.claimant_email = sp.email
+        WHERE c.item_id = ${itemId}
+        ORDER BY c.id DESC
+      `;
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ claims })
+      };
+    }
 
-      try {
+    // 6. ADMIN APPROVE OR REJECT SPECIFIC CLAIM
+    if (action === 'admin-process-claim') {
+      const { claimId, itemId, decision } = payload; // decision = 'approve' | 'reject'
+
+      if (decision === 'reject') {
+        await sql`UPDATE item_claims SET status = 'rejected' WHERE id = ${claimId}`;
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Claim rejected.' }) };
+      }
+
+      if (decision === 'approve') {
         const claimData = await sql`
           SELECT c.*, sp.full_name, sp.enrollment_no 
           FROM item_claims c
           LEFT JOIN student_profiles sp ON c.claimant_email = sp.email
           WHERE c.id = ${claimId}
         `;
-
         const claim = claimData && claimData[0] ? claimData[0] : {};
         const itemData = await sql`SELECT title, tracking_id FROM lost_items WHERE id = ${itemId}`;
         const itemTitle = itemData[0]?.title || 'Misplaced Asset';
 
+        // Approve winner
         await sql`UPDATE item_claims SET status = 'approved' WHERE id = ${claimId}`;
+        // Auto-reject competing claims
         await sql`UPDATE item_claims SET status = 'rejected' WHERE item_id = ${itemId} AND id != ${claimId}`;
 
+        // Lock item permanently
         await sql`
           UPDATE lost_items 
           SET 
@@ -251,30 +265,61 @@ exports.handler = async (event) => {
           WHERE id = ${itemId}
         `;
 
+        // 🔔 Global Resolution Broadcast
         await sql`
           INSERT INTO notifications (role, title, message, broadcast)
           VALUES (
             'all',
             ${'🎉 Resolved: ' + itemTitle},
-            ${'Handed over to ' + (claim.full_name || 'Claimant') + ' (' + (claim.enrollment_no || 'Verified') + ')'},
+            ${'Asset handed over to ' + (claim.full_name || 'Claimant') + ' (' + (claim.enrollment_no || 'Verified') + ')'},
             TRUE
           )
         `;
 
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
-      } catch (err) {
-        return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Claim approved and case closed.' }) };
       }
     }
 
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: 'Unknown action specified' })
-    };
+    // 7. DIRECT USER ONBOARDING (Admin registers Student or Admin without OTP)
+    if (action === 'admin-create-user') {
+      const { email, password, role, fullName, phone, identifier } = payload; // identifier = enrollment_no | emp_id
 
+      const existing = await sql`SELECT id FROM users WHERE email = ${email}`;
+      if (existing.length > 0) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'User with this email already exists.' }) };
+      }
+
+      // Insert User
+      const newUser = await sql`
+        INSERT INTO users (email, password, role)
+        VALUES (${email}, ${password}, ${role})
+        RETURNING id
+      `;
+      const userId = newUser[0].id;
+
+      // Seed Profile
+      if (role === 'student') {
+        await sql`
+          INSERT INTO student_profiles (user_id, email, full_name, enrollment_no, phone_no, profile_pic)
+          VALUES (${userId}, ${email}, ${fullName}, ${identifier}, ${phone}, 'https://api.dicebear.com/7.x/bottts/svg?seed=' || ${email})
+        `;
+      } else {
+        await sql`
+          INSERT INTO admin_profiles (user_id, email, full_name, emp_id, phone_no, profile_pic)
+          VALUES (${userId}, ${email}, ${fullName}, ${identifier}, ${phone}, 'https://api.dicebear.com/7.x/identicon/svg?seed=' || ${email})
+        `;
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, message: `${role.toUpperCase()} registered successfully.` })
+      };
+    }
+
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Unknown action specified' }) };
   } catch (globalErr) {
-    console.error('CRITICAL FUNCTION ERROR:', globalErr.message);
+    console.error('CRITICAL ERROR:', globalErr.message);
     return {
       statusCode: 200,
       headers,
