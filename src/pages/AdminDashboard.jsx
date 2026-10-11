@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardNavbar from '../components/DashboardNavbar';
 import ProfileSetupModal from '../components/ProfileSetupModal';
@@ -20,6 +20,26 @@ export default function AdminDashboard() {
   const [claimsLoading, setClaimsLoading] = useState(false);
   const [zoomedProof, setZoomedProof] = useState(null);
 
+  // 💳 Paytm-Style Action Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    decision: null, // 'approve' | 'reject'
+    claimId: null,
+    claimantName: '',
+    enrollmentNo: ''
+  });
+
+  // 🎉 Paytm-Style Success Notification Popup State
+  const [successModal, setSuccessModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'approve' // 'approve' | 'reject' | 'provision'
+  });
+
+  // Action Loading state for buttons
+  const [processingClaim, setProcessingClaim] = useState(false);
+
   // 👤 User Provisioning Modal
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
   const [newUserForm, setNewUserForm] = useState({
@@ -31,9 +51,49 @@ export default function AdminDashboard() {
     identifier: ''
   });
   const [createUserLoading, setCreateUserLoading] = useState(false);
-  const [createUserMsg, setCreateUserMsg] = useState('');
+  const [createUserError, setCreateUserError] = useState('');
 
   const navigate = useNavigate();
+
+  // 🔔 Paytm Sound Chime (Native Web Audio API)
+  const playPaytmChime = (type = 'success') => {
+    try {
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtxClass) return;
+      const ctx = new AudioCtxClass();
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      if (type === 'success') {
+        // High tone double chime (Paytm sound style)
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+        osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.12); // G5
+        osc.frequency.exponentialRampToValueAtTime(1046.50, ctx.currentTime + 0.25); // C6
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+      } else {
+        // Reject low blip
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(320.0, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(180.0, ctx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.25);
+      }
+    } catch (e) {
+      console.warn('Audio feedback blocked:', e);
+    }
+  };
 
   // Load Feed Data
   const fetchFeed = () => {
@@ -98,9 +158,21 @@ export default function AdminDashboard() {
       .finally(() => setClaimsLoading(false));
   };
 
-  // Process Claim (Approve or Reject)
-  const handleClaimDecision = async (claimId, decision) => {
-    if (!confirm(`Are you sure you want to ${decision.toUpperCase()} this claim?`)) return;
+  // Trigger Paytm-Style Confirmation Dialog
+  const promptClaimAction = (claim, decision) => {
+    setConfirmModal({
+      isOpen: true,
+      decision,
+      claimId: claim.id,
+      claimantName: claim.full_name,
+      enrollmentNo: claim.enrollment_no
+    });
+  };
+
+  // Execute Confirmed Claim Decision
+  const executeConfirmedDecision = async () => {
+    const { claimId, decision, claimantName } = confirmModal;
+    setProcessingClaim(true);
 
     try {
       const res = await fetch('/api/items', {
@@ -112,19 +184,37 @@ export default function AdminDashboard() {
         })
       });
       const data = await res.json();
+
+      setProcessingClaim(false);
+      setConfirmModal({ isOpen: false, decision: null, claimId: null, claimantName: '', enrollmentNo: '' });
+
       if (data.success) {
-        alert(`Success: ${data.message}`);
-        fetchFeed();
         if (decision === 'approve') {
-          setSelectedTheaterItem(null); // Close theater on case closed
+          playPaytmChime('success');
+          setSuccessModal({
+            isOpen: true,
+            type: 'approve',
+            title: 'Claim Approved & Verified!',
+            message: `Asset has been handed over to ${claimantName}. Competing claims rejected and case closed permanently.`
+          });
+          fetchFeed();
+          setSelectedTheaterItem(null); // Close theater on case resolution
         } else {
-          // Re-fetch claims after rejecting
+          playPaytmChime('reject');
+          setSuccessModal({
+            isOpen: true,
+            type: 'reject',
+            title: 'Claim Rejected',
+            message: `The claim submitted by ${claimantName} has been discarded.`
+          });
+          // Re-fetch remaining claims in theater
           openTheater(selectedTheaterItem);
         }
       } else {
         alert(data.error || 'Operation failed');
       }
     } catch (e) {
+      setProcessingClaim(false);
       alert('Network error occurred.');
     }
   };
@@ -133,7 +223,7 @@ export default function AdminDashboard() {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setCreateUserLoading(true);
-    setCreateUserMsg('');
+    setCreateUserError('');
 
     try {
       const res = await fetch('/api/items', {
@@ -142,16 +232,24 @@ export default function AdminDashboard() {
         body: JSON.stringify({ action: 'admin-create-user', payload: newUserForm })
       });
       const data = await res.json();
+      setCreateUserLoading(false);
+
       if (data.success) {
-        setCreateUserMsg(`✅ ${data.message}`);
+        playPaytmChime('success');
+        setIsCreateUserModalOpen(false);
+        setSuccessModal({
+          isOpen: true,
+          type: 'provision',
+          title: 'Account Created Successfully!',
+          message: `${newUserForm.fullName} (${newUserForm.role.toUpperCase()}) is now registered and can log in without OTP.`
+        });
         setNewUserForm({ fullName: '', email: '', password: '', role: 'student', phone: '', identifier: '' });
       } else {
-        setCreateUserMsg(`❌ ${data.error || 'Failed to register'}`);
+        setCreateUserError(data.error || 'Failed to register');
       }
     } catch (err) {
-      setCreateUserMsg('❌ Server request failed');
-    } finally {
       setCreateUserLoading(false);
+      setCreateUserError('Server request failed.');
     }
   };
 
@@ -206,7 +304,7 @@ export default function AdminDashboard() {
           <button
             onClick={() => {
               setIsCreateUserModalOpen(true);
-              setCreateUserMsg('');
+              setCreateUserError('');
             }}
             className="px-6 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-2xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-purple-600/30 flex items-center gap-2 cursor-pointer"
           >
@@ -339,7 +437,7 @@ export default function AdminDashboard() {
               ✕
             </button>
 
-            {/* LEFT 65%: MAIN PLAYER AREA (Reported Item Visual & Coordinates) */}
+            {/* LEFT 65%: MAIN PLAYER AREA */}
             <div className="w-full md:w-[62%] h-full p-6 md:p-8 flex flex-col justify-between overflow-y-auto border-b md:border-b-0 md:border-r border-white/10">
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -458,13 +556,13 @@ export default function AdminDashboard() {
                         {claim.status === 'pending' && selectedTheaterItem.status !== 'resolved' && (
                           <div className="flex gap-2 pt-1">
                             <button
-                              onClick={() => handleClaimDecision(claim.id, 'reject')}
-                              className="flex-1 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                              onClick={() => promptClaimAction(claim, 'reject')}
+                              className="flex-1 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md"
                             >
                               <span>✕</span> Reject
                             </button>
                             <button
-                              onClick={() => handleClaimDecision(claim.id, 'approve')}
+                              onClick={() => promptClaimAction(claim, 'approve')}
                               className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-900/40 cursor-pointer"
                             >
                               <span>✓</span> Approve
@@ -493,10 +591,143 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* 💳 PAYTM-STYLE ACTION CONFIRMATION POPUP MODAL */}
+      {confirmModal.isOpen && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200"
+          onClick={() => !processingClaim && setConfirmModal({ ...confirmModal, isOpen: false })}
+        >
+          <div
+            className="w-full max-w-sm bg-[#0e101a] border border-white/20 rounded-3xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.8)] text-center relative space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Glowing Action Circle Icon (Paytm Style) */}
+            <div className="flex justify-center">
+              {confirmModal.decision === 'approve' ? (
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center shadow-[0_0_30px_rgba(16,185,129,0.5)]">
+                    <span className="text-3xl text-emerald-400 font-black">✓</span>
+                  </div>
+                  <div className="absolute inset-0 rounded-full border border-emerald-400/50 animate-ping opacity-30"></div>
+                </div>
+              ) : (
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-full bg-red-500/20 border-2 border-red-400 flex items-center justify-center shadow-[0_0_30px_rgba(239,68,68,0.5)]">
+                    <span className="text-3xl text-red-400 font-black">✕</span>
+                  </div>
+                  <div className="absolute inset-0 rounded-full border border-red-400/50 animate-ping opacity-30"></div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Text Content */}
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-black text-white">
+                {confirmModal.decision === 'approve' ? 'Confirm Item Handover?' : 'Reject This Claim?'}
+              </h3>
+              <p className="text-xs text-slate-300">
+                {confirmModal.decision === 'approve' ? (
+                  <>
+                    Are you sure you want to approve claim of <span className="font-bold text-white">{confirmModal.claimantName}</span> ({confirmModal.enrollmentNo})?
+                  </>
+                ) : (
+                  <>
+                    Are you sure you want to reject the claim submitted by <span className="font-bold text-white">{confirmModal.claimantName}</span>?
+                  </>
+                )}
+              </p>
+              {confirmModal.decision === 'approve' && (
+                <p className="text-[11px] font-mono text-emerald-400/90 bg-emerald-950/30 py-1.5 px-3 rounded-xl border border-emerald-500/20 mt-2">
+                  ⚡ All other competing claims will auto-reject & case will be permanently closed.
+                </p>
+              )}
+            </div>
+
+            {/* Modal Buttons */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                disabled={processingClaim}
+                onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+                className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 rounded-2xl text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={processingClaim}
+                onClick={executeConfirmedDecision}
+                className={`flex-1 py-3 text-white rounded-2xl text-xs font-bold transition-all shadow-lg cursor-pointer disabled:opacity-50 ${
+                  confirmModal.decision === 'approve'
+                    ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/50'
+                    : 'bg-red-600 hover:bg-red-500 shadow-red-900/50'
+                }`}
+              >
+                {processingClaim
+                  ? 'Processing...'
+                  : confirmModal.decision === 'approve'
+                  ? 'Yes, Approve'
+                  : 'Yes, Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🎉 PAYTM-STYLE SUCCESS CELEBRATION MODAL */}
+      {successModal.isOpen && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200"
+          onClick={() => setSuccessModal({ ...successModal, isOpen: false })}
+        >
+          <div
+            className="w-full max-w-sm bg-gradient-to-b from-[#0e161c] to-[#0a0b12] border border-emerald-500/30 rounded-3xl p-7 text-center relative space-y-5 shadow-[0_0_60px_rgba(16,185,129,0.25)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Animated Paytm-Style Checkmark */}
+            <div className="flex justify-center">
+              <div className="relative">
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 ${
+                  successModal.type === 'reject'
+                    ? 'bg-red-500/20 border-red-400 shadow-[0_0_30px_rgba(239,68,68,0.5)]'
+                    : 'bg-emerald-500/20 border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.5)]'
+                }`}>
+                  <span className={`text-3xl font-black ${successModal.type === 'reject' ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {successModal.type === 'reject' ? '✕' : '✓'}
+                  </span>
+                </div>
+                <div className={`absolute inset-0 rounded-full border animate-ping opacity-25 ${
+                  successModal.type === 'reject' ? 'border-red-400' : 'border-emerald-400'
+                }`}></div>
+              </div>
+            </div>
+
+            {/* Success Message */}
+            <div className="space-y-1">
+              <span className={`text-[10px] font-mono font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                successModal.type === 'reject' ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'
+              }`}>
+                Transaction Logged
+              </span>
+              <h3 className="text-xl font-black text-white pt-1">{successModal.title}</h3>
+              <p className="text-xs text-slate-300 leading-relaxed pt-1">{successModal.message}</p>
+            </div>
+
+            {/* Done Action Button */}
+            <button
+              onClick={() => setSuccessModal({ ...successModal, isOpen: false })}
+              className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl text-xs font-bold uppercase tracking-wider transition-all shadow-lg shadow-emerald-900/50 cursor-pointer"
+            >
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 🔍 CLAIMANT PROOF HIGH-RES LIGHTBOX */}
       {zoomedProof && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl"
+          className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl"
           onClick={() => setZoomedProof(null)}
         >
           <div className="relative max-w-3xl max-h-[90vh] bg-[#0c0d15] border border-white/20 rounded-3xl p-3 flex flex-col items-center">
@@ -609,9 +840,9 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              {createUserMsg && (
-                <div className="p-3 bg-white/5 border border-white/10 rounded-xl text-xs font-mono">
-                  {createUserMsg}
+              {createUserError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs font-mono">
+                  ❌ {createUserError}
                 </div>
               )}
 
