@@ -393,7 +393,7 @@ export default function StudentDashboard() {
                 {/* Permanent Claimant Audit Strip */}
                 <div className="p-4 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between text-xs">
                   <div>
-                    <p className="text-slate-400 text-[11px]">Handed Over To:</p>
+                    <p className="text-slate-400 text-[11px]">Handed in by:</p>
                     <p className="font-bold text-white text-sm">{item.approved_claimant_name}</p>
                   </div>
                   <div className="text-right">
