@@ -295,19 +295,21 @@ exports.handler = async (event) => {
       }
     }
 
-    // 7. SIMPLE DIRECT USER INSERT (Email, Password, Role only - Zero OTP)
+  // 7. DIRECT USER INSERT (Matching users table schema exactly)
     if (action === 'admin-create-user') {
-      const { email, password, role } = payload;
+      const { name, email, password, role } = payload;
 
       if (!email || !password) {
         return {
           statusCode: 400,
           headers,
-          body: JSON.stringify({ error: 'Email aur Password required hain.' })
+          body: JSON.stringify({ error: 'Email aur Password dono required hain.' })
         };
       }
 
       const cleanEmail = email.trim().toLowerCase();
+      // Agar name frontend se na aaye toh email ka prefix use karein taaki NOT NULL constraint violate na ho
+      const cleanName = (name && name.trim()) || cleanEmail.split('@')[0];
       const userRole = role === 'admin' ? 'admin' : 'student';
 
       try {
@@ -320,11 +322,10 @@ exports.handler = async (event) => {
           };
         }
 
-        // Direct user insert into users table (No dummy profiles, No constraint breaks)
         const inserted = await sql`
-          INSERT INTO users (email, password, role)
-          VALUES (${cleanEmail}, ${password}, ${userRole})
-          RETURNING id, email, role
+          INSERT INTO users (name, email, password_hash, role)
+          VALUES (${cleanName}, ${cleanEmail}, ${password}, ${userRole})
+          RETURNING id, name, email, role
         `;
 
         return {
@@ -346,15 +347,3 @@ exports.handler = async (event) => {
         };
       }
     }
-
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Unknown action specified' }) };
-
-  } catch (globalErr) {
-    console.error('CRITICAL HANDLER ERROR:', globalErr.message);
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ items: [], notifications: [], warning: globalErr.message })
-    };
-  }
-};
