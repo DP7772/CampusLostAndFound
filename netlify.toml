@@ -1,14 +1,19 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  functions = "netlify/functions"
 
-# Ensure correct MIME type for JavaScript modules
+[build.environment]
+  NODE_VERSION = "18"
+
+# Redirect /api/* requests to Netlify serverless functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# MIME type fix for JS modules
 [[headers]]
   for = "/*.js"
   [headers.values]
     Content-Type = "application/javascript; charset=UTF-8"
-
-[[headers]]
-  for = "/assets/*"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
