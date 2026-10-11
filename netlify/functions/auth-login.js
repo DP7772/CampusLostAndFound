@@ -20,38 +20,49 @@ export const handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Email and password are required.' }) };
     }
 
-    // 1. Check if email exists in database
+    // 1. Check whether email exists in NeonDB
     const users = await sql`SELECT id, name, email, role, password_hash FROM users WHERE email = ${email}`;
 
     if (users.length === 0) {
-      // Portal-specific error if email not found
       if (portalType === 'admin') {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized account. Please contact technical head.' }) };
+        return { 
+          statusCode: 404, 
+          body: JSON.stringify({ error: 'Admin record not found. Please contact the technical head.' }) 
+        };
       } else {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Email not registered. Please sign up first.' }) };
+        return { 
+          statusCode: 404, 
+          body: JSON.stringify({ error: 'Email is not registered. Please sign up first.' }) 
+        };
       }
     }
 
     const user = users[0];
 
-    // 2. Strict Role & Portal Verification (F12 protection check)
+    // 2. Strict Role Verification
     if (portalType === 'admin' && user.role !== 'admin') {
-      return { statusCode: 403, body: JSON.stringify({ error: 'Access denied. You do not have admin privileges.' }) };
+      return { 
+        statusCode: 403, 
+        body: JSON.stringify({ error: 'Access denied. You do not hold administrator clearance.' }) 
+      };
     }
 
-    if (portalType === 'student' && user.role !== 'student' && user.role !== 'admin') {
-      return { statusCode: 403, body: JSON.stringify({ error: 'Invalid portal access for this account.' }) };
+    if (portalType === 'student' && user.role !== 'student') {
+      return { 
+        statusCode: 403, 
+        body: JSON.stringify({ error: 'Invalid access node. Authorities must use the Admin Desk.' }) 
+      };
     }
 
-    // 3. Password Hashing Verification using bcryptjs
+    // 3. Password Comparison via bcryptjs
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      return { statusCode: 401, body: JSON.stringify({ error: 'Incorrect password. Please try again.' }) };
+      return { statusCode: 401, body: JSON.stringify({ error: 'Incorrect password. Verification failed.' }) };
     }
 
-    // 4. Generate JWT Token
+    // 4. Issue JWT Token with Role Payload
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      { id: user.id, email: user.email, role: user.role, name: user.name },
       process.env.JWT_SECRET || 'fallback_secret_key',
       { expiresIn: '24h' }
     );
