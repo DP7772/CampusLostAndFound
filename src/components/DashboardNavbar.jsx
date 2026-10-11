@@ -171,9 +171,9 @@ export default function DashboardNavbar({ profile, role }) {
                           <span>{n.title}</span>
                         </p>
                         <p className="text-slate-300 text-[11px] mt-1 leading-relaxed">{n.message}</p>
-                        <span className="text-[9px] text-slate-500 font-mono mt-2 block">
-                          {n.created_at ? new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
-                        </span>
+                        <span className="text-[9px] text-slate-500 font-mono mt-1.5 block">
+  {n.created_at || 'Just now'}
+</span>
                       </div>
                     ))
                   )}
