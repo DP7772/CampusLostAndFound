@@ -20,12 +20,17 @@ exports.handler = async (event) => {
     };
   }
 
-  const dbUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED || process.env.NETLIFY_DATABASE_URL;
+  // Neon connection fallback check
+  const dbUrl = 
+    process.env.NETLIFY_DATABASE_URL_UNPOOLED || 
+    process.env.NETLIFY_DATABASE_URL || 
+    process.env.DATABASE_URL;
+
   if (!dbUrl) {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ error: 'DB configuration missing', items: [], notifications: [] })
+      body: JSON.stringify({ error: 'Database URL missing from environment.', items: [], notifications: [] })
     };
   }
 
@@ -36,7 +41,7 @@ exports.handler = async (event) => {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ error: 'DB Driver init failed', items: [], notifications: [] })
+      body: JSON.stringify({ error: `DB Driver initialization failed: ${err.message}`, items: [], notifications: [] })
     };
   }
 
@@ -45,12 +50,43 @@ exports.handler = async (event) => {
     const action = body.action || '';
     const payload = body.payload || {};
 
-    // 1. GET FEED (Safe fallback: agar table mein query fail bhi ho toh 200 return karega)
+    // 1. GET NOTIFICATIONS (Guaranteed fetch with safe date serialization)
+    if (action === 'get-notifications') {
+      try {
+        const notifications = await sql`
+          SELECT 
+            id, 
+            role, 
+            title, 
+            message, 
+            broadcast, 
+            to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at
+          FROM notifications 
+          ORDER BY id DESC 
+          LIMIT 25
+        `;
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ notifications: notifications || [] })
+        };
+      } catch (err) {
+        console.error('get-notifications SQL Error:', err.message);
+        // Expose real error rather than masking with empty array
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ notifications: [], dbError: err.message })
+        };
+      }
+    }
+
+    // 2. GET FEED
     if (action === 'get-feed') {
       try {
         const items = await sql`
           SELECT * FROM lost_items 
-          ORDER BY created_at DESC 
+          ORDER BY id DESC 
           LIMIT 100
         `;
 
@@ -96,10 +132,9 @@ exports.handler = async (event) => {
       }
     }
 
-    // 2. REPORT ITEM
+    // 3. REPORT ITEM + NOTIFY BROADCAST
     if (action === 'report-item') {
       const { email, title, category, location, lostDate, lostTime, description, itemPic } = payload;
-      
       const trackingId = `LOST-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
 
       let userId = null;
@@ -126,7 +161,9 @@ exports.handler = async (event) => {
             TRUE
           )
         `;
-      } catch (e) {}
+      } catch (e) {
+        console.error('Notification log failed:', e.message);
+      }
 
       return {
         statusCode: 200,
@@ -135,7 +172,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // 3. CLAIM ITEM
+    // 4. CLAIM ITEM
     if (action === 'claim-item') {
       const { email, itemId, trackingId, proofPic, uniqueIdentifier, claimDescription } = payload;
 
@@ -185,7 +222,7 @@ exports.handler = async (event) => {
       }
     }
 
-    // 4. ADMIN APPROVE CLAIM
+    // 5. ADMIN APPROVE CLAIM
     if (action === 'admin-approve-claim') {
       const { claimId, itemId } = payload;
 
@@ -229,28 +266,6 @@ exports.handler = async (event) => {
         return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
       } catch (err) {
         return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
-      }
-    }
-
-    // 5. GET NOTIFICATIONS
-    if (action === 'get-notifications') {
-      try {
-        const notifications = await sql`
-          SELECT * FROM notifications 
-          ORDER BY created_at DESC 
-          LIMIT 25
-        `;
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({ notifications: notifications || [] })
-        };
-      } catch (e) {
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({ notifications: [] })
-        };
       }
     }
 
