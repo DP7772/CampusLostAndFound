@@ -20,35 +20,36 @@ export const handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: 'Email and password are required.' }) };
     }
 
-    // Check if user exists in database
+    // 1. Check if email exists in database
     const users = await sql`SELECT id, name, email, role, password_hash FROM users WHERE email = ${email}`;
 
     if (users.length === 0) {
+      // Portal-specific error if email not found
       if (portalType === 'admin') {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Account not found. Please contact technical head.' }) };
+        return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized account. Please contact technical head.' }) };
       } else {
-        return { statusCode: 401, body: JSON.stringify({ error: 'Email does not exist. Please sign up first.' }) };
+        return { statusCode: 401, body: JSON.stringify({ error: 'Email not registered. Please sign up first.' }) };
       }
     }
 
     const user = users[0];
 
-    // Role-based validation
+    // 2. Strict Role & Portal Verification (F12 protection check)
     if (portalType === 'admin' && user.role !== 'admin') {
       return { statusCode: 403, body: JSON.stringify({ error: 'Access denied. You do not have admin privileges.' }) };
     }
 
     if (portalType === 'student' && user.role !== 'student' && user.role !== 'admin') {
-      return { statusCode: 403, body: JSON.stringify({ error: 'Invalid portal. Please use the appropriate login.' }) };
+      return { statusCode: 403, body: JSON.stringify({ error: 'Invalid portal access for this account.' }) };
     }
 
-    // Password comparison using bcryptjs
+    // 3. Password Hashing Verification using bcryptjs
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return { statusCode: 401, body: JSON.stringify({ error: 'Incorrect password. Please try again.' }) };
     }
 
-    // Generate JWT token
+    // 4. Generate JWT Token
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       process.env.JWT_SECRET || 'fallback_secret_key',
