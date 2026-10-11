@@ -6,13 +6,19 @@
 [build.environment]
   NODE_VERSION = "20"
 
-# Redirect /api/* requests to Netlify serverless functions
+# 1. API routes (Top priority: ye functions ko hit karega)
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
 
-# MIME type fix for JS modules
+# 2. Frontend routes (Dashboards aur baaki pages 404 nahi denge)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# MIME type fix
 [[headers]]
   for = "/*.js"
   [headers.values]
