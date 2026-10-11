@@ -26,6 +26,9 @@ export default function StudentDashboard() {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [claimTargetItem, setClaimTargetItem] = useState(null);
 
+  // 🔍 Image Lightbox State (Photo Click Preview)
+  const [previewImage, setPreviewImage] = useState(null);
+
   const navigate = useNavigate();
 
   // Load Feed Data
@@ -135,6 +138,52 @@ export default function StudentDashboard() {
         onSuccess={() => fetchFeed(user?.email)}
       />
 
+      {/* 🌟 IMAGE PREVIEW LIGHTBOX MODAL */}
+      {previewImage && (
+        <div 
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in fade-in duration-200"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div 
+            className="relative max-w-4xl max-h-[90vh] bg-[#0c0d15] border border-white/20 rounded-3xl p-3 shadow-2xl flex flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute -top-4 -right-4 bg-black border border-white/20 text-white rounded-full p-2.5 hover:bg-white/10 hover:rotate-90 transition-all z-10 shadow-lg"
+              title="Close Preview"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+
+            {/* High-Res Image Display */}
+            <div className="w-full max-h-[75vh] flex items-center justify-center overflow-hidden rounded-2xl bg-black">
+              <img 
+                src={previewImage.item_pic} 
+                alt={previewImage.title} 
+                className="max-h-[75vh] w-auto max-w-full object-contain"
+              />
+            </div>
+
+            {/* Bottom Meta Bar */}
+            <div className="w-full mt-3 px-4 py-2 bg-white/5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div>
+                <h4 className="font-bold text-white text-sm">{previewImage.title}</h4>
+                <p className="text-slate-400 text-[11px] font-mono mt-0.5">
+                  ID: <span className="text-blue-400">{previewImage.tracking_id}</span> • Location: {previewImage.location}
+                </p>
+              </div>
+              <span className="text-[10px] font-mono uppercase bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full font-bold">
+                {previewImage.category}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-8 space-y-8">
         
         {/* Banner with Broadcast CTA */}
@@ -145,7 +194,7 @@ export default function StudentDashboard() {
             </span>
             <h1 className="text-3xl font-black text-white mt-2">Campus Recovery Grid</h1>
             <p className="text-slate-400 text-xs mt-1 max-w-xl">
-              Browse lost reports across college zones. Verify ownership with physical proofs to initiate authority transfer.
+              Browse lost reports across college zones. Click on photographs to expand full view.
             </p>
           </div>
           <button
@@ -198,7 +247,7 @@ export default function StudentDashboard() {
           />
         </div>
 
-        {/* Modern Grid Feed (YouTube / Instagram format) */}
+        {/* Modern Grid Feed */}
         {filteredItems.length === 0 ? (
           <div className="text-center py-20 bg-[#0a0b12]/50 border border-white/5 rounded-3xl">
             <span className="text-4xl">📡</span>
@@ -212,21 +261,31 @@ export default function StudentDashboard() {
                 key={item.id} 
                 className="bg-[#0b0d14] border border-white/10 rounded-2xl overflow-hidden shadow-xl hover:border-blue-500/40 transition-all flex flex-col group"
               >
-                {/* Image Banner */}
-                <div className="relative h-56 bg-black overflow-hidden">
+                {/* 📸 Image Banner with Click-to-Zoom */}
+                <div 
+                  className="relative h-56 bg-black overflow-hidden cursor-pointer"
+                  onClick={() => setPreviewImage(item)}
+                >
                   <img 
                     src={item.item_pic} 
                     alt={item.title} 
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
                   />
                   
+                  {/* Subtle Hover Hint to click */}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="bg-black/70 backdrop-blur-md text-white text-xs px-3 py-1.5 rounded-full border border-white/20 font-medium flex items-center gap-1.5">
+                      🔍 Click to Zoom
+                    </span>
+                  </div>
+
                   {/* Tracking ID Badge */}
-                  <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md border border-white/10 px-3 py-1 rounded-full text-[10px] font-mono font-bold text-blue-400">
+                  <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md border border-white/10 px-3 py-1 rounded-full text-[10px] font-mono font-bold text-blue-400 pointer-events-none">
                     {item.tracking_id}
                   </div>
 
                   {/* Status Badge */}
-                  <div className="absolute top-3 right-3">
+                  <div className="absolute top-3 right-3 pointer-events-none">
                     {item.status === 'available' && (
                       <span className="bg-emerald-500/80 backdrop-blur-md text-white text-[10px] px-2.5 py-1 rounded-full font-bold">
                         OPEN
