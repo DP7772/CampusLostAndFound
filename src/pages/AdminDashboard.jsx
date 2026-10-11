@@ -26,6 +26,7 @@ export default function AdminDashboard() {
     }
     setUser(parsed);
 
+    // NeonDB check for Admin
     fetch('/api/profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -33,18 +34,28 @@ export default function AdminDashboard() {
     })
       .then((res) => res.json())
       .then((data) => {
-        if (!data.isSetup) {
-          setIsSetupNeeded(true);
-        } else {
+        if (data.isSetup && data.profile) {
           setProfile(data.profile);
+          setIsSetupNeeded(false);
+        } else {
+          setIsSetupNeeded(true);
         }
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+        console.error('Admin profile fetch error:', err);
+      })
       .finally(() => setLoading(false));
   }, [navigate]);
 
   if (loading) {
-    return <div className="min-h-screen bg-[#050505] flex items-center justify-center text-purple-500 font-mono">Verifying Root Key...</div>;
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-400 font-mono text-xs">Verifying Administrator Token...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -63,9 +74,12 @@ export default function AdminDashboard() {
 
       <main className="max-w-6xl mx-auto p-8 space-y-8">
         <div className="p-8 rounded-3xl bg-gradient-to-r from-purple-900/20 to-indigo-900/20 border border-purple-500/20">
-          <h2 className="text-3xl font-black text-white">Authority Console: {profile?.full_name || user?.name}</h2>
+          <span className="text-[10px] font-mono uppercase bg-purple-500/20 text-purple-400 px-3 py-1 rounded-full font-bold">
+            Root Authority Console
+          </span>
+          <h2 className="text-3xl font-black text-white mt-4">Welcome, Authority Officer {profile?.full_name || user?.name}</h2>
           <p className="text-slate-400 mt-2 text-sm max-w-xl">
-            Employee ID: <span className="font-mono text-purple-400">{profile?.emp_id}</span>. Audit vault items and process physical claims.
+            Staff ID: <span className="font-mono text-purple-400 font-semibold">{profile?.emp_id}</span> • Phone: <span className="text-slate-300">{profile?.phone_no}</span>
           </p>
         </div>
       </main>
