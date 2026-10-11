@@ -51,6 +51,7 @@ exports.handler = async (event) => {
     const payload = body.payload || {};
 
     // 1. GET NOTIFICATIONS (Guaranteed fetch with safe date serialization)
+   // 🔔 1. GET NOTIFICATIONS (Converted to IST +05:30)
     if (action === 'get-notifications') {
       try {
         const notifications = await sql`
@@ -60,7 +61,7 @@ exports.handler = async (event) => {
             title, 
             message, 
             broadcast, 
-            to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS created_at
+            to_char(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata', 'HH12:MI AM, DD Mon') AS created_at
           FROM notifications 
           ORDER BY id DESC 
           LIMIT 25
@@ -71,8 +72,6 @@ exports.handler = async (event) => {
           body: JSON.stringify({ notifications: notifications || [] })
         };
       } catch (err) {
-        console.error('get-notifications SQL Error:', err.message);
-        // Expose real error rather than masking with empty array
         return {
           statusCode: 200,
           headers,
@@ -80,7 +79,6 @@ exports.handler = async (event) => {
         };
       }
     }
-
     // 2. GET FEED
     if (action === 'get-feed') {
       try {
