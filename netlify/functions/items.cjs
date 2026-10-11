@@ -227,13 +227,13 @@ exports.handler = async (event) => {
       };
     }
 
-    // 6. ADMIN APPROVE OR REJECT SPECIFIC CLAIM
+   // 6. ADMIN APPROVE OR REJECT SPECIFIC CLAIM
     if (action === 'admin-process-claim') {
-      const { claimId, itemId, decision } = payload; // decision = 'approve' | 'reject'
+      const { claimId, itemId, decision } = payload;
 
       if (decision === 'reject') {
         await sql`UPDATE item_claims SET status = 'rejected' WHERE id = ${claimId}`;
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Claim rejected.' }) };
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Claim discarded.' }) };
       }
 
       if (decision === 'approve') {
@@ -247,12 +247,13 @@ exports.handler = async (event) => {
         const itemData = await sql`SELECT title, tracking_id FROM lost_items WHERE id = ${itemId}`;
         const itemTitle = itemData[0]?.title || 'Misplaced Asset';
 
-        // Approve winner
+        // 1. Finder's claim approve
         await sql`UPDATE item_claims SET status = 'approved' WHERE id = ${claimId}`;
-        // Auto-reject competing claims
+        
+        // 2. Reject others
         await sql`UPDATE item_claims SET status = 'rejected' WHERE item_id = ${itemId} AND id != ${claimId}`;
 
-        // Lock item permanently
+        // 3. Mark lost item as RECOVERED / FOUND
         await sql`
           UPDATE lost_items 
           SET 
@@ -265,18 +266,25 @@ exports.handler = async (event) => {
           WHERE id = ${itemId}
         `;
 
-        // 🔔 Global Resolution Broadcast
+        // 🔔 4. Sahi Broadcast: "Found & Recovered By [Student]" (Handed over by student)
         await sql`
           INSERT INTO notifications (role, title, message, broadcast)
           VALUES (
             'all',
-            ${'🎉 Resolved: ' + itemTitle},
-            ${'Asset handed over to ' + (claim.full_name || 'Claimant') + ' (' + (claim.enrollment_no || 'Verified') + ')'},
+            ${'✅ Asset Recovered: ' + itemTitle},
+            ${'Successfully found and handed in by ' + (claim.full_name || 'Student') + ' (Enr: ' + (claim.enrollment_no || 'Verified') + ')'},
             TRUE
           )
         `;
 
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Claim approved and case closed.' }) };
+        return { 
+          statusCode: 200, 
+          headers, 
+          body: JSON.stringify({ 
+            success: true, 
+            message: `Verified! Item successfully recovered by ${claim.full_name || 'Student'}.` 
+          }) 
+        };
       }
     }
 
