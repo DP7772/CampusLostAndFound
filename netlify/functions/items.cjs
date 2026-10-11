@@ -288,65 +288,50 @@ exports.handler = async (event) => {
       }
     }
 
-    // 7. SIMPLE DIRECT USER INSERT (Email, Password, Role)
+    // 7. DIRECT USER ONBOARDING (Admin registers Student or Admin without OTP)
     if (action === 'admin-create-user') {
-      const { email, password, role } = payload;
+      const { email, password, role, fullName, phone, identifier } = payload; // identifier = enrollment_no | emp_id
 
-      if (!email || !password) {
-        return {
-          statusCode: 400,
-          headers,
-          body: JSON.stringify({ error: 'Email aur Password dono required hain.' })
-        };
+      const existing = await sql`SELECT id FROM users WHERE email = ${email}`;
+      if (existing.length > 0) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'User with this email already exists.' }) };
       }
 
-      const cleanEmail = email.trim().toLowerCase();
-      const userRole = role === 'admin' ? 'admin' : 'student';
+      // Insert User
+      const newUser = await sql`
+        INSERT INTO users (email, password, role)
+        VALUES (${email}, ${password}, ${role})
+        RETURNING id
+      `;
+      const userId = newUser[0].id;
 
-      try {
-        // Check existing user
-        const existing = await sql`SELECT id FROM users WHERE email = ${cleanEmail} LIMIT 1`;
-        if (existing && existing.length > 0) {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Yeh email pehle se registered hai.' })
-          };
-        }
-
-        // Direct Insert into `users` table
-        // (Agar aapke login mein password hashed check hota hai, bcrypt use karein; agar plain/direct hai toh direct)
-        let hashedPassword = password;
-        try {
-          const bcrypt = require('bcryptjs');
-          hashedPassword = await bcrypt.hash(password, 10);
-        } catch (e) {
-          // Fallback agar bcryptjs na ho
-          hashedPassword = password;
-        }
-
-        const inserted = await sql`
-          INSERT INTO users (email, password, role)
-          VALUES (${cleanEmail}, ${hashedPassword}, ${userRole})
-          RETURNING id, email, role
+      // Seed Profile
+      if (role === 'student') {
+        await sql`
+          INSERT INTO student_profiles (user_id, email, full_name, enrollment_no, phone_no, profile_pic)
+          VALUES (${userId}, ${email}, ${fullName}, ${identifier}, ${phone}, 'https://api.dicebear.com/7.x/bottts/svg?seed=' || ${email})
         `;
-
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            success: true,
-            message: `${userRole.toUpperCase()} account successfully ban gaya!`
-          })
-        };
-      } catch (dbErr) {
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            success: false,
-            error: dbErr.message
-          })
-        };
+      } else {
+        await sql`
+          INSERT INTO admin_profiles (user_id, email, full_name, emp_id, phone_no, profile_pic)
+          VALUES (${userId}, ${email}, ${fullName}, ${identifier}, ${phone}, 'https://api.dicebear.com/7.x/identicon/svg?seed=' || ${email})
+        `;
       }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, message: `${role.toUpperCase()} registered successfully.` })
+      };
     }
+
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'Unknown action specified' }) };
+  } catch (globalErr) {
+    console.error('CRITICAL ERROR:', globalErr.message);
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ items: [], notifications: [], warning: globalErr.message })
+    };
+  }
+};
