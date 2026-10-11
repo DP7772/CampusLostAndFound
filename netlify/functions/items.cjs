@@ -1,197 +1,231 @@
-const { neon } = require('@neondatabase/serverless');
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-exports.handler = async (event) => {
-  // CORS & Methods check
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
+export default function DashboardNavbar({ profile, role }) {
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showNotifMenu, setShowNotifMenu] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const prevCountRef = useRef(0);
+  const profileRef = useRef(null);
+  const notifRef = useRef(null);
+  const navigate = useNavigate();
+
+  // 🔔 Reliable Sci-Fi Chime Sound
+  const playChime = () => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const audioCtx = new AudioContext();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(659.25, audioCtx.currentTime); // E5
+      osc.frequency.exponentialRampToValueAtTime(880.00, audioCtx.currentTime + 0.15); // A5
+
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.35);
+    } catch (e) {
+      console.warn('Audio feedback blocked by browser:', e);
+    }
+  };
+
+  // Poll Notifications
+  const loadNotifications = () => {
+    fetch('/api/items', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Method Not Allowed' })
-    };
-  }
-
-  const dbUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED || process.env.NETLIFY_DATABASE_URL;
-  if (!dbUrl) {
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Database connection string missing in Netlify environment.' })
-    };
-  }
-
-  const sql = neon(dbUrl);
-
-  try {
-    const { action, payload } = JSON.parse(event.body || '{}');
-
-    // 1. GET FEED (Purani aur nayi saari items fetch karega safely)
-    if (action === 'get-feed') {
-      const userEmail = payload && payload.userEmail ? payload.userEmail : null;
-
-      // Safe fetch: Sare items seedha lost_items table se fetch karo
-      const items = await sql`
-        SELECT * FROM lost_items 
-        ORDER BY created_at DESC
-      `;
-
-      // Agar user logged in hai, unke claims alag se check karo (Fail-safe, no crash join)
-      let claimedItemIds = new Set();
-      let claimStatusMap = {};
-
-      if (userEmail) {
-        try {
-          const claims = await sql`
-            SELECT item_id, status FROM item_claims 
-            WHERE claimant_email = ${userEmail}
-          `;
-          claims.forEach((c) => {
-            claimedItemIds.add(c.item_id);
-            claimStatusMap[c.item_id] = c.status;
-          });
-        } catch (e) {
-          console.warn('Claims table check skipped:', e.message);
+      body: JSON.stringify({ action: 'get-notifications' })
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        const list = data.notifications || [];
+        if (prevCountRef.current > 0 && list.length > prevCountRef.current) {
+          playChime();
+          setUnreadCount((prev) => prev + (list.length - prevCountRef.current));
+        } else if (prevCountRef.current === 0 && list.length > 0) {
+          setUnreadCount(list.length);
         }
+        prevCountRef.current = list.length;
+        setNotifications(list);
+      })
+      .catch((err) => console.error('Notification error:', err));
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(loadNotifications, 7000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Click outside to dismiss menus
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setShowProfileMenu(false);
       }
-
-      // Attach claim flags
-      const formattedItems = items.map((item) => ({
-        ...item,
-        has_user_claimed: claimedItemIds.has(item.id),
-        user_claim_status: claimStatusMap[item.id] || null
-      }));
-
-      // Extract unique categories & locations dynamically
-      const categories = [...new Set(items.map((i) => i.category).filter(Boolean))];
-      const locations = [...new Set(items.map((i) => i.location).filter(Boolean))];
-
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: formattedItems, categories, locations })
-      };
-    }
-
-    // 2. REPORT ITEM (New post)
-    if (action === 'report-item') {
-      const { email, title, category, location, lostDate, lostTime, description, itemPic } = payload || {};
-      
-      let userId = null;
-      try {
-        const u = await sql`SELECT id FROM users WHERE email = ${email}`;
-        if (u.length > 0) userId = u[0].id;
-      } catch (err) {
-        console.warn('User lookup fallback:', err.message);
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setShowNotifMenu(false);
       }
-
-      const trackingId = `LOST-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-
-      const inserted = await sql`
-        INSERT INTO lost_items (
-          tracking_id, user_id, student_email, title, category, location, lost_date, lost_time, description, item_pic, status
-        ) VALUES (
-          ${trackingId}, ${userId}, ${email}, ${title}, ${category}, ${location}, ${lostDate}, ${lostTime}, ${description}, ${itemPic}, 'available'
-        ) RETURNING *
-      `;
-
-      // Safe notification broadcast
-      try {
-        await sql`
-          INSERT INTO notifications (role, title, message, broadcast)
-          VALUES (
-            'all',
-            ${`⚠️ Misplaced Asset: ${title}`},
-            ${`Asset "${title}" was reported lost at ${location}. Tracking ID: ${trackingId}.`},
-            TRUE
-          )
-        `;
-      } catch (e) {
-        console.warn('Notification log skipped:', e.message);
-      }
-
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true, item: inserted[0] })
-      };
-    }
-
-    // 3. CLAIM ITEM
-    if (action === 'claim-item') {
-      const { email, itemId, trackingId, proofPic, uniqueIdentifier, claimDescription } = payload || {};
-
-      let userId = null;
-      try {
-        const u = await sql`SELECT id FROM users WHERE email = ${email}`;
-        if (u.length > 0) userId = u[0].id;
-      } catch (err) {}
-
-      // Prevent duplicate claims
-      const existing = await sql`
-        SELECT id FROM item_claims WHERE item_id = ${itemId} AND claimant_email = ${email}
-      `;
-      if (existing.length > 0) {
-        return {
-          statusCode: 400,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ error: 'You have already submitted a claim for this item.' })
-        };
-      }
-
-      const claim = await sql`
-        INSERT INTO item_claims (
-          item_id, tracking_id, claimant_id, claimant_email, proof_pic, unique_identifier, claim_description, status
-        ) VALUES (
-          ${itemId}, ${trackingId}, ${userId}, ${email}, ${proofPic}, ${uniqueIdentifier}, ${claimDescription}, 'pending'
-        ) RETURNING *
-      `;
-
-      await sql`
-        UPDATE lost_items 
-        SET status = 'claim_pending' 
-        WHERE id = ${itemId} AND status = 'available'
-      `;
-
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: true, claim: claim[0] })
-      };
-    }
-
-    // 4. NOTIFICATIONS
-    if (action === 'get-notifications') {
-      try {
-        const notifications = await sql`
-          SELECT * FROM notifications 
-          ORDER BY created_at DESC 
-          LIMIT 20
-        `;
-        return {
-          statusCode: 200,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ notifications })
-        };
-      } catch (e) {
-        return {
-          statusCode: 200,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ notifications: [] })
-        };
-      }
-    }
-
-    return {
-      statusCode: 400,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Invalid action.' })
     };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
 
-  } catch (error) {
-    console.error('API_CRASH_LOG:', error);
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: `Backend operation failed: ${error.message}` })
-    };
-  }
-};
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/');
+  };
+
+  return (
+    <nav className="w-full bg-[#07080c]/90 backdrop-blur-md border-b border-white/10 sticky top-0 z-40 px-6 py-4">
+      <div className="max-w-7xl mx-auto flex items-center justify-between">
+        
+        {/* Logo */}
+        <div 
+          className="flex items-center gap-3 cursor-pointer select-none" 
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        >
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 font-black text-white">
+            Ω
+          </div>
+          <span className="font-bold tracking-tight text-lg text-white">
+            CAMPUS <span className="text-blue-500">L&F</span>
+          </span>
+        </div>
+
+        {/* Right Section */}
+        <div className="flex items-center gap-5">
+          
+          {/* 🔔 Notification Bell */}
+          <div className="relative" ref={notifRef}>
+            <button
+              onClick={() => {
+                setShowNotifMenu(!showNotifMenu);
+                setShowProfileMenu(false);
+                setUnreadCount(0);
+              }}
+              className={`relative p-2.5 rounded-xl border transition-all ${
+                unreadCount > 0 
+                  ? 'bg-red-500/20 border-red-500 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse' 
+                  : 'bg-white/5 hover:bg-white/10 border-white/5 text-slate-300 hover:text-white'
+              }`}
+            >
+              🔔
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-lg">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {/* Notifications Dropdown */}
+            {showNotifMenu && (
+              <div className="absolute right-0 mt-3 w-80 md:w-96 bg-[#0e0f17] border border-white/10 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in duration-200">
+                <div className="flex justify-between items-center pb-3 border-b border-white/5">
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Campus Broadcast Feed</h4>
+                  <span className="text-[10px] text-blue-400 font-mono">Live</span>
+                </div>
+                
+                <div className="mt-3 space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                  {notifications.length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-4">No active broadcasts yet.</p>
+                  ) : (
+                    notifications.map((n, i) => (
+                      <div 
+                        key={i} 
+                        className={`p-3 rounded-xl border text-xs transition-all ${
+                          n.title.includes('Resolved') 
+                            ? 'bg-purple-950/20 border-purple-500/30' 
+                            : 'bg-blue-950/20 border-blue-500/20'
+                        }`}
+                      >
+                        <p className="font-bold text-white">{n.title}</p>
+                        <p className="text-slate-300 text-[11px] mt-1 leading-relaxed">{n.message}</p>
+                        <span className="text-[9px] text-slate-500 font-mono mt-1.5 block">
+                          {n.created_at ? new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just now'}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* User Profile Avatar */}
+          <div className="relative" ref={profileRef}>
+            <button 
+              onClick={() => {
+                setShowProfileMenu(!showProfileMenu);
+                setShowNotifMenu(false);
+              }}
+              className="flex items-center gap-3 p-1 rounded-full border border-white/10 hover:border-blue-500/50 transition-all bg-white/5"
+            >
+              <img 
+                src={profile?.profile_pic || 'https://api.dicebear.com/7.x/identicon/svg?seed=user'} 
+                alt="Avatar" 
+                className="w-9 h-9 rounded-full object-cover" 
+              />
+            </button>
+
+            {/* Profile Dropdown */}
+            {showProfileMenu && (
+              <div className="absolute right-0 mt-3 w-72 bg-[#0d0e15] border border-white/10 rounded-3xl shadow-2xl p-5 z-50 animate-in fade-in duration-200">
+                <div className="flex items-center gap-3 pb-4 border-b border-white/10">
+                  <img 
+                    src={profile?.profile_pic || 'https://api.dicebear.com/7.x/identicon/svg?seed=user'} 
+                    alt="Avatar" 
+                    className="w-12 h-12 rounded-2xl object-cover border border-white/10" 
+                  />
+                  <div>
+                    <h4 className="text-sm font-bold text-white leading-tight">{profile?.full_name || 'Verified User'}</h4>
+                    <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded-md font-bold mt-1 inline-block ${role === 'admin' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                      {role}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="py-3 space-y-2 text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>{role === 'admin' ? 'EMP ID:' : 'Enrollment:'}</span>
+                    <span className="font-mono text-white">{profile?.emp_id || profile?.enrollment_no || 'Pending'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Phone:</span>
+                    <span className="text-white">{profile?.phone_no || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Email:</span>
+                    <span className="text-slate-300 truncate max-w-[130px]">{profile?.email}</span>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleLogout}
+                  className="w-full mt-3 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold rounded-xl text-xs border border-red-500/20 transition-all"
+                >
+                  Terminate Session (Logout)
+                </button>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </nav>
+  );
+}
